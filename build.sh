@@ -30,7 +30,7 @@ fi
 echo "Compiling main.swift with swiftc..."
 if [ -f "main.swift" ]; then
     mkdir -p build_cache
-    swiftc -O -module-cache-path ./build_cache main.swift -o "${APP_DIR}/Contents/MacOS/${APP_NAME}"
+    swiftc -O -module-cache-path ./build_cache main.swift -framework IOKit -o "${APP_DIR}/Contents/MacOS/${APP_NAME}"
 else
     echo "Error: main.swift not found!"
     exit 1
