@@ -26,26 +26,22 @@ func IOAVServiceReadI2C(_ service: CFTypeRef, _ chipAddress: UInt32, _ dataAddre
 class DDCManager {
     static let shared = DDCManager()
 
-    private let chipAddress: UInt32 = 0x37       // DDC/CI I2C 7-bit slave address
-    private let hostAddress: UInt8 = 0x51        // Host source address
-    private let destAddress: UInt8 = 0x6E        // Display destination (0x37 << 1)
+    private let chipAddress: UInt32 = 0x37
+    private let hostAddress: UInt8 = 0x51
+    private let destAddress: UInt8 = 0x6E
 
-    // VCP codes
-    private let vcpBrightness: UInt8 = 0x10      // Brightness
-    private let vcpPowerMode: UInt8 = 0xD6       // Display Power Mode
+    private let vcpBrightness: UInt8 = 0x10
+    private let vcpPowerMode: UInt8 = 0xD6
 
-    // Power mode values
     static let powerOn: UInt16 = 0x01
-    static let powerOff: UInt16 = 0x04           // DPMS Off (standby, still accepts DDC)
+    static let powerOff: UInt16 = 0x04
 
     private init() {}
 
-    /// DDC/CI checksum: XOR of destination address, host address, and all data bytes
     private func checksum(_ data: [UInt8]) -> UInt8 {
         return ([destAddress, hostAddress] + data).reduce(UInt8(0)) { $0 ^ $1 }
     }
 
-    /// Find all IOAVService references for external displays (Apple Silicon only)
     func getExternalAVServices() -> [CFTypeRef] {
         #if arch(arm64)
         var services: [CFTypeRef] = []
@@ -79,12 +75,8 @@ class DDCManager {
         #endif
     }
 
-    // MARK: - Generic VCP Feature Read/Write
-
-    /// Read a VCP feature value via DDC/CI
     func readVCPFeature(service: CFTypeRef, vcp: UInt8) -> (current: UInt16, max: UInt16)? {
         #if arch(arm64)
-        // Build Get VCP Feature request: [length=0x82, cmd=0x01, vcp, checksum]
         var requestData: [UInt8] = [0x82, 0x01, vcp]
         requestData.append(checksum(requestData))
 
@@ -94,9 +86,8 @@ class DDCManager {
         )
         guard writeResult == KERN_SUCCESS else { return nil }
 
-        usleep(50000)  // 50ms delay for display MCU processing
+        usleep(50000)
 
-        // Read 11-byte reply
         var reply = [UInt8](repeating: 0, count: 11)
         let readResult = IOAVServiceReadI2C(
             service, chipAddress, UInt32(hostAddress),
@@ -104,15 +95,12 @@ class DDCManager {
         )
         guard readResult == KERN_SUCCESS else { return nil }
 
-        // Parse reply - standard format:
-        // [0x6E, 0x88, 0x02, result, vcp, type, maxH, maxL, curH, curL, cs]
         if reply.count >= 11 && reply[0] == 0x6E && reply[2] == 0x02 {
             guard reply[3] == 0x00 else { return nil }
             let maxVal = (UInt16(reply[6]) << 8) | UInt16(reply[7])
             let curVal = (UInt16(reply[8]) << 8) | UInt16(reply[9])
             if maxVal > 0 { return (current: curVal, max: maxVal) }
         }
-        // Alternative format without source byte
         if reply.count >= 10 && reply[1] == 0x02 {
             guard reply[2] == 0x00 else { return nil }
             let maxVal = (UInt16(reply[5]) << 8) | UInt16(reply[6])
@@ -125,13 +113,11 @@ class DDCManager {
         #endif
     }
 
-    /// Set a VCP feature value via DDC/CI, with 3 retries
     func setVCPFeature(service: CFTypeRef, vcp: UInt8, value: UInt16) -> Bool {
         #if arch(arm64)
         let highByte = UInt8((value >> 8) & 0xFF)
         let lowByte = UInt8(value & 0xFF)
 
-        // Build Set VCP Feature command: [length=0x84, cmd=0x03, vcp, valH, valL, checksum]
         var data: [UInt8] = [0x84, 0x03, vcp, highByte, lowByte]
         data.append(checksum(data))
 
@@ -149,26 +135,20 @@ class DDCManager {
         #endif
     }
 
-    // MARK: - Convenience Methods
-
-    /// Read current brightness (VCP 0x10)
     func readBrightness(service: CFTypeRef) -> (current: UInt16, max: UInt16)? {
         return readVCPFeature(service: service, vcp: vcpBrightness)
     }
 
-    /// Set brightness (VCP 0x10)
     func setBrightness(service: CFTypeRef, value: UInt16) -> Bool {
         return setVCPFeature(service: service, vcp: vcpBrightness, value: min(value, 100))
     }
 
-    /// Power off display via DPMS standby (VCP 0xD6 = 0x04)
     func displayPowerOff(service: CFTypeRef) -> Bool {
         let result = setVCPFeature(service: service, vcp: vcpPowerMode, value: DDCManager.powerOff)
         if result { print("DDCManager: Sent display power OFF command") }
         return result
     }
 
-    /// Power on display (VCP 0xD6 = 0x01)
     func displayPowerOn(service: CFTypeRef) -> Bool {
         let result = setVCPFeature(service: service, vcp: vcpPowerMode, value: DDCManager.powerOn)
         if result { print("DDCManager: Sent display power ON command") }
@@ -176,7 +156,7 @@ class DDCManager {
     }
 }
 
-// MARK: - GammaManager (software brightness fallback for unsupported displays)
+// MARK: - GammaManager (software brightness fallback)
 
 class GammaManager {
     static let shared = GammaManager()
@@ -187,9 +167,7 @@ class GammaManager {
 
     private init() {}
 
-    /// Dim a display by zeroing its gamma table (screen appears black, backlight stays on)
     func dimDisplay(displayID: CGDirectDisplayID) {
-        // Save current gamma table
         let sampleCount: UInt32 = 256
         var red = [CGGammaValue](repeating: 0, count: Int(sampleCount))
         var green = [CGGammaValue](repeating: 0, count: Int(sampleCount))
@@ -200,12 +178,10 @@ class GammaManager {
             savedGammas[displayID] = (red, green, blue, actualCount)
         }
 
-        // Set gamma formula to produce black output (min=0, max=0, gamma=1 for each channel)
         CGSetDisplayTransferByFormula(displayID, 0, 0, 1, 0, 0, 1, 0, 0, 1)
         print("GammaManager: Dimmed display \(displayID)")
     }
 
-    /// Restore a display's original gamma table
     func restoreDisplay(displayID: CGDirectDisplayID) {
         if let saved = savedGammas.removeValue(forKey: displayID) {
             CGSetDisplayTransferByTable(displayID, saved.count, saved.red, saved.green, saved.blue)
@@ -219,13 +195,11 @@ class GammaManager {
 
 // MARK: - BrightnessManager (unified brightness control)
 
-/// Tracks how each display was dimmed for proper restoration
 enum DimMethod {
     case displayServices(savedBrightness: Float)
     case gamma
 }
 
-/// Tracks DDC state per external display service
 struct DDCDisplayState {
     let service: CFTypeRef
     let savedBrightness: UInt16
@@ -235,12 +209,10 @@ struct DDCDisplayState {
 class BrightnessManager {
     static let shared = BrightnessManager()
 
-    // DisplayServices handles (for built-in Apple displays)
     private var displayServicesHandle: UnsafeMutableRawPointer?
     private var setBrightnessFunc: DisplayServicesSetBrightnessType?
     private var getBrightnessFunc: DisplayServicesGetBrightnessType?
 
-    // State tracking
     var dimmedDisplays: [CGDirectDisplayID: DimMethod] = [:]
     var dimmedDDCServices: [DDCDisplayState] = []
 
@@ -281,12 +253,6 @@ class BrightnessManager {
         return [CGMainDisplayID()]
     }
 
-    /// Dim all displays using the best available method for each
-    ///
-    /// Strategy:
-    /// - Built-in displays → DisplayServices (hardware brightness to 0)
-    /// - External displays → Gamma black (immediate visual blackout)
-    ///                      + DDC power off (physically turns off monitor for real power savings)
     func dimAllDisplays() {
         dimmedDisplays.removeAll()
         dimmedDDCServices.removeAll()
@@ -294,7 +260,6 @@ class BrightnessManager {
         let displays = getActiveDisplays()
         var externalDisplays: [CGDirectDisplayID] = []
 
-        // Step 1: Built-in displays → DisplayServices
         for display in displays {
             if CGDisplayIsBuiltin(display) != 0 {
                 let saved = getBrightness(displayID: display)
@@ -308,69 +273,48 @@ class BrightnessManager {
 
         guard !externalDisplays.isEmpty else { return }
 
-        // Step 2: External displays → Always apply gamma black first (instant visual effect)
         for display in externalDisplays {
             GammaManager.shared.dimDisplay(displayID: display)
             dimmedDisplays[display] = .gamma
         }
-        print("BrightnessManager: Applied gamma blackout to \(externalDisplays.count) external display(s)")
 
-        // Step 3: External displays → Also try DDC power off (real power savings)
         let avServices = DDCManager.shared.getExternalAVServices()
         for avService in avServices {
-            // Save current brightness for later restore
             var savedBrightness: UInt16 = 100
             if let reading = DDCManager.shared.readBrightness(service: avService) {
                 savedBrightness = reading.current
                 print("DDCManager: Saved brightness \(reading.current)/\(reading.max)")
-            } else {
-                print("DDCManager: Could not read brightness, assuming 100")
             }
 
-            // Send display power off command (DPMS standby)
             let powerOffSuccess = DDCManager.shared.displayPowerOff(service: avService)
             dimmedDDCServices.append(DDCDisplayState(
                 service: avService,
                 savedBrightness: savedBrightness,
                 wasPoweredOff: powerOffSuccess
             ))
-
-            if powerOffSuccess {
-                print("BrightnessManager: External display powered off via DDC/CI")
-            } else {
-                print("BrightnessManager: DDC power off failed, gamma fallback is active")
-            }
         }
     }
 
-    /// Restore all dimmed displays to their original state
     func restoreAllDisplays() {
-        // Step 1: DDC displays → power on first (takes time to initialize)
         for state in dimmedDDCServices {
             if state.wasPoweredOff {
                 _ = DDCManager.shared.displayPowerOn(service: state.service)
             }
         }
 
-        // Step 2: Wait for monitors to wake up if any were powered off
         if dimmedDDCServices.contains(where: { $0.wasPoweredOff }) {
-            usleep(800000)  // 800ms for monitor to initialize after power on
+            usleep(800000)
         }
 
-        // Step 3: Restore DDC brightness
         for state in dimmedDDCServices {
-            if DDCManager.shared.setBrightness(service: state.service, value: state.savedBrightness) {
-                print("BrightnessManager: Restored DDC brightness to \(state.savedBrightness)")
-            }
+            _ = DDCManager.shared.setBrightness(service: state.service, value: state.savedBrightness)
         }
         dimmedDDCServices.removeAll()
 
-        // Step 4: Restore gamma and DisplayServices displays
         for (display, method) in dimmedDisplays {
             switch method {
             case .displayServices(let saved):
                 setBrightness(displayID: display, level: saved)
-                print("BrightnessManager: Restored built-in display \(display) to \(saved)")
             case .gamma:
                 GammaManager.shared.restoreDisplay(displayID: display)
             }
@@ -390,12 +334,11 @@ class InputMonitor {
     private var keyEventMonitor: Any?
     private var onTrigger: (() -> Void)?
 
-    // Thresholds
-    private let distanceThreshold: CGFloat = 500.0     // 500 pixels cumulative
-    private let distanceTimeWindow: TimeInterval = 3.0 // within 3 seconds
-    private let keyPressesRequired: Int = 3            // 3 key presses
-    private let keyTimeWindow: TimeInterval = 2.0      // within 2 seconds
-    private let checkInterval: TimeInterval = 0.1      // check mouse every 100ms for accuracy
+    private let distanceThreshold: CGFloat = 500.0
+    private let distanceTimeWindow: TimeInterval = 3.0
+    private let keyPressesRequired: Int = 3
+    private let keyTimeWindow: TimeInterval = 2.0
+    private let checkInterval: TimeInterval = 0.1
 
     func startMonitoring(callback: @escaping () -> Void) {
         stopMonitoring()
@@ -406,17 +349,15 @@ class InputMonitor {
         distanceWindowStart = Date()
         keyPressTimestamps = []
 
-        // Timer-based mouse position tracking (no permissions needed)
         mouseCheckTimer = Timer.scheduledTimer(withTimeInterval: checkInterval, repeats: true) { [weak self] _ in
             self?.checkMousePosition()
         }
 
-        // Global keyboard event monitor (requires Accessibility permissions; degrades gracefully)
         keyEventMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] _ in
             self?.handleKeyPress()
         }
 
-        print("InputMonitor: Started (mouse: \(Int(distanceThreshold))px/\(distanceTimeWindow)s, keys: \(keyPressesRequired)x/\(keyTimeWindow)s)")
+        print("InputMonitor: Started")
     }
 
     func stopMonitoring() {
@@ -438,14 +379,12 @@ class InputMonitor {
         let distance = sqrt(dx * dx + dy * dy)
         lastMousePosition = currentPos
 
-        // Only count meaningful movement (> 1 pixel, filters out sub-pixel jitter)
         guard distance > 1.0 else { return }
 
         let now = Date()
         let elapsed = now.timeIntervalSince(distanceWindowStart)
 
         if elapsed > distanceTimeWindow {
-            // Reset sliding window
             cumulativeDistance = distance
             distanceWindowStart = now
         } else {
@@ -453,7 +392,7 @@ class InputMonitor {
         }
 
         if cumulativeDistance >= distanceThreshold {
-            print("InputMonitor: Mouse threshold reached (\(Int(cumulativeDistance))px in \(String(format: "%.1f", elapsed))s)")
+            print("InputMonitor: Mouse threshold reached (\(Int(cumulativeDistance))px)")
             trigger()
         }
     }
@@ -461,12 +400,10 @@ class InputMonitor {
     private func handleKeyPress() {
         let now = Date()
         keyPressTimestamps.append(now)
-
-        // Sliding window: remove timestamps outside the time window
         keyPressTimestamps = keyPressTimestamps.filter { now.timeIntervalSince($0) <= keyTimeWindow }
 
         if keyPressTimestamps.count >= keyPressesRequired {
-            print("InputMonitor: Key press threshold reached (\(keyPressTimestamps.count)x in \(keyTimeWindow)s)")
+            print("InputMonitor: Key press threshold reached")
             trigger()
         }
     }
@@ -478,14 +415,115 @@ class InputMonitor {
     }
 }
 
+// MARK: - ToggleMenuItemView (custom NSSwitch toggle for menu bar)
+
+class ToggleMenuItemView: NSView {
+    let toggleSwitch = NSSwitch()
+    private let sleepLabel = NSTextField(labelWithString: "💤 Sleep")
+    private let coffeeLabel = NSTextField(labelWithString: "☕️ Coffee")
+    private let statusLabel = NSTextField(labelWithString: "")
+
+    var onToggle: ((Bool) -> Void)?
+
+    var isOn: Bool {
+        get { toggleSwitch.state == .on }
+        set {
+            toggleSwitch.state = newValue ? .on : .off
+            updateAppearance()
+        }
+    }
+
+    var statusText: String = "" {
+        didSet {
+            statusLabel.stringValue = statusText
+            statusLabel.isHidden = statusText.isEmpty
+        }
+    }
+
+    init() {
+        super.init(frame: NSRect(x: 0, y: 0, width: 280, height: 56))
+        setupUI()
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    private func setupUI() {
+        // Configure text labels
+        for label in [sleepLabel, coffeeLabel] {
+            label.isBezeled = false
+            label.drawsBackground = false
+            label.isEditable = false
+            label.isSelectable = false
+            label.font = .systemFont(ofSize: 13, weight: .medium)
+        }
+
+        statusLabel.isBezeled = false
+        statusLabel.drawsBackground = false
+        statusLabel.isEditable = false
+        statusLabel.isSelectable = false
+        statusLabel.font = .systemFont(ofSize: 11)
+        statusLabel.textColor = .secondaryLabelColor
+        statusLabel.alignment = .center
+        statusLabel.isHidden = true
+
+        toggleSwitch.target = self
+        toggleSwitch.action = #selector(switchToggled(_:))
+
+        addSubview(sleepLabel)
+        addSubview(toggleSwitch)
+        addSubview(coffeeLabel)
+        addSubview(statusLabel)
+
+        // Auto Layout
+        sleepLabel.translatesAutoresizingMaskIntoConstraints = false
+        toggleSwitch.translatesAutoresizingMaskIntoConstraints = false
+        coffeeLabel.translatesAutoresizingMaskIntoConstraints = false
+        statusLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        NSLayoutConstraint.activate([
+            sleepLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 18),
+            sleepLabel.topAnchor.constraint(equalTo: topAnchor, constant: 10),
+
+            toggleSwitch.centerXAnchor.constraint(equalTo: centerXAnchor),
+            toggleSwitch.centerYAnchor.constraint(equalTo: sleepLabel.centerYAnchor),
+
+            coffeeLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -18),
+            coffeeLabel.centerYAnchor.constraint(equalTo: sleepLabel.centerYAnchor),
+
+            statusLabel.centerXAnchor.constraint(equalTo: centerXAnchor),
+            statusLabel.topAnchor.constraint(equalTo: toggleSwitch.bottomAnchor, constant: 2),
+            statusLabel.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: 10),
+            statusLabel.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -10),
+        ])
+
+        updateAppearance()
+    }
+
+    private func updateAppearance() {
+        let active = toggleSwitch.state == .on
+        sleepLabel.textColor = active ? .tertiaryLabelColor : .labelColor
+        coffeeLabel.textColor = active ? .labelColor : .tertiaryLabelColor
+    }
+
+    @objc private func switchToggled(_ sender: NSSwitch) {
+        updateAppearance()
+        onToggle?(sender.state == .on)
+    }
+}
+
 // MARK: - AppDelegate
 
-class AppDelegate: NSObject, NSApplicationDelegate {
+class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var statusItem: NSStatusItem!
     var caffeinateProcess: Process?
     var timer: Timer?
     var endTime: Date?
     var selectedDurationName: String = "Indefinitely"
+
+    // UI references
+    var toggleView: ToggleMenuItemView?
 
     // Blackout Mode state
     var isBlackoutModeActive: Bool = false
@@ -512,61 +550,99 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func constructMenu() {
         let menu = NSMenu()
+        menu.autoenablesItems = false
+        menu.delegate = self
 
-        // Status display
-        let statusItemMenu = NSMenuItem(title: "Status: Allowed to Sleep", action: nil, keyEquivalent: "")
-        statusItemMenu.tag = 100
-        menu.addItem(statusItemMenu)
-        menu.addItem(NSMenuItem.separator())
-
-        // Prevent Sleep toggle
-        let toggleItem = NSMenuItem(title: "Prevent Sleep", action: #selector(toggleSleep(_:)), keyEquivalent: "")
-        toggleItem.tag = 101
+        // ── Custom toggle switch ──
+        let toggleItem = NSMenuItem()
+        let toggle = ToggleMenuItemView()
+        toggle.onToggle = { [weak self] isOn in
+            guard let self = self else { return }
+            if isOn {
+                self.activate()
+                // Revert if activation failed
+                if self.caffeinateProcess == nil {
+                    toggle.isOn = false
+                    toggle.statusText = "Allowed to Sleep"
+                }
+            } else {
+                self.deactivate()
+            }
+        }
+        toggleItem.view = toggle
+        self.toggleView = toggle
+        toggle.statusText = "Allowed to Sleep"
         menu.addItem(toggleItem)
 
-        // Set Duration submenu
+        menu.addItem(NSMenuItem.separator())
+
+        // ── Set Duration submenu (disabled by default when Sleep is active) ──
         let durationMenuItem = NSMenuItem(title: "Set Duration", action: nil, keyEquivalent: "")
+        durationMenuItem.tag = 101
+        durationMenuItem.isEnabled = false
         let durationSubmenu = NSMenu()
+        durationSubmenu.autoenablesItems = false
         let durations = ["Indefinitely", "15 Minutes", "1 Hour", "3 Hours", "Until 8:00 AM"]
         for duration in durations {
             let item = NSMenuItem(title: duration, action: #selector(changeDuration(_:)), keyEquivalent: "")
+            item.isEnabled = false
             item.state = (duration == selectedDurationName) ? .on : .off
             durationSubmenu.addItem(item)
         }
         durationMenuItem.submenu = durationSubmenu
         menu.addItem(durationMenuItem)
 
-        // Blackout Mode toggle
+        // ── Blackout Mode toggle (disabled by default when Sleep is active) ──
         let blackoutItem = NSMenuItem(title: "Blackout Mode (Energy Saving)", action: #selector(toggleBlackoutMode(_:)), keyEquivalent: "")
         blackoutItem.tag = 102
+        blackoutItem.isEnabled = false
         menu.addItem(blackoutItem)
 
         menu.addItem(NSMenuItem.separator())
-        menu.addItem(NSMenuItem(title: "About KeepAwake", action: #selector(showAbout(_:)), keyEquivalent: ""))
-        menu.addItem(NSMenuItem(title: "Quit", action: #selector(quitApp(_:)), keyEquivalent: "q"))
+
+        // ── About & Quit ──
+        let aboutItem = NSMenuItem(title: "About KeepAwake", action: #selector(showAbout(_:)), keyEquivalent: "")
+        aboutItem.isEnabled = true
+        menu.addItem(aboutItem)
+        let quitItem = NSMenuItem(title: "Quit", action: #selector(quitApp(_:)), keyEquivalent: "q")
+        quitItem.isEnabled = true
+        menu.addItem(quitItem)
 
         statusItem.menu = menu
     }
 
-    @objc func toggleSleep(_ sender: NSMenuItem) {
-        if caffeinateProcess == nil {
-            activate()
-        } else {
-            deactivate()
+    func menuWillOpen(_ menu: NSMenu) {
+        let isCoffeeActive = caffeinateProcess != nil
+        if let durationItem = menu.item(withTag: 101) {
+            durationItem.isEnabled = isCoffeeActive
+            durationItem.submenu?.items.forEach { $0.isEnabled = isCoffeeActive }
         }
+        if let blackoutItem = menu.item(withTag: 102) {
+            blackoutItem.isEnabled = isCoffeeActive
+        }
+        if !isCoffeeActive {
+            toggleView?.statusText = "Allowed to Sleep"
+        }
+    }
+
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        if menuItem.tag == 101 || menuItem.tag == 102 {
+            return caffeinateProcess != nil
+        }
+        return true
     }
 
     @objc func changeDuration(_ sender: NSMenuItem) {
         selectedDurationName = sender.title
 
         // Update checkmarks in submenu
-        if let submenu = statusItem.menu?.item(withTitle: "Set Duration")?.submenu {
+        if let submenu = sender.menu {
             for item in submenu.items {
                 item.state = (item.title == selectedDurationName) ? .on : .off
             }
         }
 
-        // Reactivate with the new duration
+        // Activate/reactivate with new duration (also turns on Coffee if off)
         activate()
     }
 
@@ -582,20 +658,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         guard !isBlackoutModeActive else { return }
         isBlackoutModeActive = true
 
-        // Ensure sleep prevention is also activated
         if caffeinateProcess == nil {
             activate()
         }
 
-        // Dim all displays (gamma + DDC power off)
         BrightnessManager.shared.dimAllDisplays()
 
-        // Start safety input monitoring for auto-restore
         inputMonitor.startMonitoring { [weak self] in
             self?.disableBlackoutMode(autoRestored: true)
         }
 
-        // Update UI
         if let blackoutItem = statusItem.menu?.item(withTag: 102) {
             blackoutItem.state = .on
         }
@@ -610,13 +682,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         guard isBlackoutModeActive else { return }
         isBlackoutModeActive = false
 
-        // Stop safety monitoring
         inputMonitor.stopMonitoring()
-
-        // Restore all displays (DDC power on + gamma restore)
         BrightnessManager.shared.restoreAllDisplays()
 
-        // Update UI
         if let blackoutItem = statusItem.menu?.item(withTag: 102) {
             blackoutItem.state = .off
         }
@@ -675,9 +743,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             caffeinateProcess = process
         } catch {
             print("Failed to run caffeinate: \(error)")
+            toggleView?.isOn = false
+            toggleView?.statusText = ""
             return
         }
 
+        // Timer setup
         if let seconds = getDurationSeconds() {
             startTimer(seconds: seconds)
         } else {
@@ -687,20 +758,26 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             if let button = statusItem.button {
                 button.title = "☕️"
             }
+            toggleView?.statusText = selectedDurationName
         }
 
-        if let toggleItem = statusItem.menu?.item(withTag: 101) {
-            toggleItem.state = .on
+        // Update toggle and menu state
+        toggleView?.isOn = true
+
+        // Enable Set Duration and Blackout Mode options
+        if let durationItem = statusItem.menu?.item(withTag: 101) {
+            durationItem.isEnabled = true
+            durationItem.submenu?.items.forEach { $0.isEnabled = true }
         }
-        if let statusLabel = statusItem.menu?.item(withTag: 100) {
-            statusLabel.title = "Status: Blocked Sleep (\(selectedDurationName))"
+        if let blackoutItem = statusItem.menu?.item(withTag: 102) {
+            blackoutItem.isEnabled = true
         }
 
         showNotification(title: "Keep Awake Activated", body: "Mac will stay awake: \(selectedDurationName)")
     }
 
     func deactivate() {
-        // Automatically exit Blackout Mode when deactivating sleep prevention
+        // Automatically exit Blackout Mode when deactivating
         disableBlackoutMode()
 
         killCaffeinate()
@@ -708,14 +785,23 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         timer = nil
         endTime = nil
 
+        // Update menu bar icon
         if let button = statusItem.button {
             button.title = "💤"
         }
-        if let toggleItem = statusItem.menu?.item(withTag: 101) {
-            toggleItem.state = .off
+
+        // Update toggle and menu state
+        toggleView?.isOn = false
+        toggleView?.statusText = "Allowed to Sleep"
+
+        // Disable Set Duration and Blackout Mode options
+        if let durationItem = statusItem.menu?.item(withTag: 101) {
+            durationItem.isEnabled = false
+            durationItem.submenu?.items.forEach { $0.isEnabled = false }
         }
-        if let statusLabel = statusItem.menu?.item(withTag: 100) {
-            statusLabel.title = "Status: Allowed to Sleep"
+        if let blackoutItem = statusItem.menu?.item(withTag: 102) {
+            blackoutItem.isEnabled = false
+            blackoutItem.state = .off
         }
 
         showNotification(title: "Keep Awake Deactivated", body: "Normal sleep settings restored.")
@@ -749,9 +835,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         if let button = statusItem.button {
             if hours > 0 {
-                button.title = String(format: "☕️ %02d:%02d:%02d", hours, minutes, seconds)
+                let timeStr = String(format: "%02d:%02d:%02d", hours, minutes, seconds)
+                button.title = "☕️ " + timeStr
+                toggleView?.statusText = timeStr + " remaining"
             } else {
-                button.title = String(format: "☕️ %02d:%02d", minutes, seconds)
+                let timeStr = String(format: "%02d:%02d", minutes, seconds)
+                button.title = "☕️ " + timeStr
+                toggleView?.statusText = timeStr + " remaining"
             }
         }
     }
@@ -792,7 +882,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         • Safety auto-restore via mouse/keyboard
 
         Built with Swift & AppKit.
-        Version 1.1.0
+        Version 1.2.0
         """
         alert.alertStyle = .informational
         alert.addButton(withTitle: "OK")
