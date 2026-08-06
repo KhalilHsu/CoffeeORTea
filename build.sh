@@ -29,7 +29,8 @@ fi
 # 4. Compile Swift code
 echo "Compiling main.swift with swiftc..."
 if [ -f "main.swift" ]; then
-    swiftc -O main.swift -o "${APP_DIR}/Contents/MacOS/${APP_NAME}"
+    mkdir -p build_cache
+    swiftc -O -module-cache-path ./build_cache main.swift -o "${APP_DIR}/Contents/MacOS/${APP_NAME}"
 else
     echo "Error: main.swift not found!"
     exit 1
