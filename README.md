@@ -1,12 +1,13 @@
 # KeepAwake（咖啡或茶 CoffeeORTea）☕️
 
-KeepAwake 是一个原生 macOS 菜单栏工具，用系统 `caffeinate` 断言阻止 Mac 休眠和锁定，并提供定时保持唤醒与 Blackout Mode。
+KeepAwake 是一个原生 macOS 菜单栏工具，用系统 `caffeinate` 断言阻止 Mac 空闲休眠和显示器空闲关闭，并提供定时保持唤醒与 Blackout Mode。它不会绕过手动锁屏或身份验证。
 
 Blackout Mode 的默认策略是把内置屏幕、外接屏亮度降到 0，而不是发送显示器断电命令。这样可以尽量保持显示器仍在系统图形拓扑中，适合需要后台截图或使用 Computer Use 的场景。不同显示器的 DDC/Gamma 行为仍需在真实硬件上验证，项目不保证所有显示器都能保持截图可用。
 
 ## 功能
 
 - 菜单栏显示睡眠/咖啡状态。
+- 启动和打开菜单时读取当前电源策略；如果系统已经设置为永不休眠，会明确提示当前状态；其他程序的 `caffeinate` 不会被当作 KeepAwake 已开启。
 - 永久或 15 分钟、1 小时、3 小时、直到早上 8:00 的保持唤醒时长。
 - Blackout Mode：内置屏使用 DisplayServices，外接屏优先使用 DDC/CI 亮度控制，不支持时使用 Gamma 降级方案。
 - Blackout 状态写入临时恢复文件，并启动独立 watchdog；主进程异常退出后，watchdog 会尝试恢复显示器状态。
@@ -39,6 +40,8 @@ CODESIGN_IDENTITY="Developer ID Application: Your Name" ./build.sh
 ## 安全边界和已知限制
 
 - `caffeinate -w <PID>` 会把断言绑定到 KeepAwake 进程；KeepAwake 退出后，`caffeinate` 会结束并释放对应的防休眠断言。
+- KeepAwake 只管理自己启动的 `caffeinate`；关闭开关时不会终止其他程序的保持唤醒断言。
+- KeepAwake 不修改屏幕保护程序或锁屏设置。开启期间的空闲显示器断言在当前 macOS 环境下也会阻止屏保按空闲计时启动，但手动锁屏、合盖和认证策略不作保证。
 - 显示器亮度恢复由 KeepAwake 的 watchdog 做 best-effort 保护。系统断电、watchdog 自身被杀、极端系统崩溃或显示器拒绝恢复命令时，不能保证 100% 恢复。
 - 项目使用 macOS 私有的 DisplayServices 和 Apple Silicon 上的 IOAVService/`@_silgen_name` DDC 接口，不适合提交 Mac App Store。公开发布时应使用自己的 Developer ID 签名并完成 notarization。
 - Blackout Mode 不会模拟键鼠，也不会绕过 macOS 的隐私权限。全局键盘自动恢复可能需要用户授予 Input Monitoring/辅助功能权限；鼠标恢复仍可独立工作。

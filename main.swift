@@ -555,6 +555,118 @@ class InputMonitor {
     }
 }
 
+// MARK: - System power state
+
+struct SystemPowerState {
+    let systemNeverSleeps: Bool
+    let displaySleepMinutes: Int?
+    let hasExternalCaffeinate: Bool
+}
+
+/// Reads the effective power policy without changing any macOS settings.
+/// KeepAwake's switch is intentionally independent from assertions owned by
+/// other processes, so an external caffeinate never appears as our own switch.
+final class SystemPowerStateReader {
+    static let shared = SystemPowerStateReader()
+
+    private init() {}
+
+    func read(forProcessID processID: pid_t) -> SystemPowerState {
+        let customSettings = commandOutput(arguments: ["-g", "custom"])
+        let profiles = parsePowerProfiles(customSettings)
+        let activeProfileName = activePowerProfileName(
+            from: commandOutput(arguments: ["-g", "batt"])
+        )
+        let activeProfile = activeProfileName.flatMap { profiles[$0] }
+            ?? (profiles.count == 1 ? profiles.values.first : nil)
+
+        let assertions = commandOutput(arguments: ["-g", "assertions"])
+        return SystemPowerState(
+            systemNeverSleeps: activeProfile?["sleep"] == 0,
+            displaySleepMinutes: activeProfile?["displaysleep"],
+            hasExternalCaffeinate: hasExternalCaffeinate(
+                in: assertions,
+                currentProcessID: processID
+            )
+        )
+    }
+
+    private func commandOutput(arguments: [String]) -> String {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/pmset")
+        process.arguments = arguments
+
+        let outputPipe = Pipe()
+        process.standardOutput = outputPipe
+        process.standardError = Pipe()
+
+        do {
+            try process.run()
+            process.waitUntilExit()
+        } catch {
+            print("SystemPowerStateReader: failed to run pmset: \(error)")
+            return ""
+        }
+
+        guard process.terminationStatus == 0 else { return "" }
+        let data = outputPipe.fileHandleForReading.readDataToEndOfFile()
+        return String(data: data, encoding: .utf8) ?? ""
+    }
+
+    private func parsePowerProfiles(_ output: String) -> [String: [String: Int]] {
+        var profiles: [String: [String: Int]] = [:]
+        var currentProfile: String?
+
+        for line in output.components(separatedBy: .newlines) {
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed == "AC Power:" || trimmed == "Battery Power:" {
+                let name = String(trimmed.dropLast())
+                profiles[name] = [:]
+                currentProfile = name
+                continue
+            }
+
+            guard let currentProfile else { continue }
+            let parts = trimmed.split(whereSeparator: { $0 == " " || $0 == "\t" })
+            guard parts.count >= 2,
+                  let value = Int(parts[1]),
+                  parts[0] == "sleep" || parts[0] == "displaysleep" else {
+                continue
+            }
+            profiles[currentProfile]?[String(parts[0])] = value
+        }
+
+        return profiles
+    }
+
+    private func activePowerProfileName(from output: String) -> String? {
+        if output.contains("Now drawing from 'AC Power'") {
+            return "AC Power"
+        }
+        if output.contains("Now drawing from 'Battery Power'") {
+            return "Battery Power"
+        }
+        return nil
+    }
+
+    private func hasExternalCaffeinate(in assertions: String, currentProcessID: pid_t) -> Bool {
+        let marker = "Process ID "
+
+        for line in assertions.components(separatedBy: .newlines)
+            where line.contains("Details: caffeinate asserting on behalf of \(marker)") {
+            guard let markerRange = line.range(of: marker) else { continue }
+            let suffix = line[markerRange.upperBound...]
+            let pidText = suffix.prefix(while: { $0.isNumber })
+            guard let ownerPID = Int(pidText) else { continue }
+            if ownerPID != Int(currentProcessID) {
+                return true
+            }
+        }
+
+        return false
+    }
+}
+
 // MARK: - Localization (i18n)
 
 enum Language: String {
@@ -586,6 +698,18 @@ struct L10n {
     static var sleepLabel: String { localized("💤 Sleep", zh: "💤 睡眠") }
     static var coffeeLabel: String { localized("☕️ Coffee", zh: "☕️ 咖啡") }
     static var allowedToSleep: String { localized("Normal system sleep", zh: "按系统设置休眠") }
+    static var systemNeverSleeps: String {
+        localized("System sleep is already set to Never", zh: "系统已设置为永不休眠，无需开启")
+    }
+    static func systemNeverSleepsWithDisplaySleep(_ minutes: Int) -> String {
+        localized(
+            "System sleep is Never; display sleeps after \(minutes) min",
+            zh: "系统不会休眠；显示器 \(minutes) 分钟后关闭"
+        )
+    }
+    static var otherCaffeinateActive: String {
+        localized("Another program is keeping your Mac awake", zh: "其他程序正在保持电脑唤醒")
+    }
     
     // MARK: - Menu Items
     static var setDuration: String { localized("Set Duration", zh: "设置时长") }
@@ -620,7 +744,7 @@ struct L10n {
     static var aboutBody: String {
         localized(
             """
-            KeepAwake is a 100% native macOS menubar app that prevents your Mac from sleeping or locking.
+            KeepAwake is a 100% native macOS menubar app that prevents idle system and display sleep while it is active. It does not bypass manual lock or authentication.
             
             Includes Blackout Mode to safely dim displays to 0% for automated agents and Energy Saving.
             
@@ -633,7 +757,7 @@ struct L10n {
             Version \(appVersion)
             """,
             zh: """
-            KeepAwake 是一款 100% 原生 macOS 菜单栏应用，可防止 Mac 进入睡眠或锁定。
+            KeepAwake 是一款 100% 原生 macOS 菜单栏应用，可在开启期间阻止系统和显示器空闲休眠，但不会绕过手动锁屏或身份验证。
             
             包含息屏模式，可安全地将显示器亮度降至 0%，适用于自动化代理和省电场景。
             
@@ -811,6 +935,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var blackoutRecoveryURL: URL?
     var blackoutWatchdogProcess: Process?
 
+    private var isKeepAwakeActive: Bool {
+        caffeinateProcess?.isRunning == true
+    }
+
     func applicationDidFinishLaunching(_ aNotification: Notification) {
         requestNotificationPermission()
 
@@ -818,11 +946,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         setStatusBarIcon(isAwake: false)
 
         constructMenu()
+        refreshWakeStatus()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
         if isBlackoutModeActive {
-            disableBlackoutMode()
+            disableBlackoutMode(notify: false)
         } else {
             stopBlackoutWatchdog()
         }
@@ -851,7 +980,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 // Revert if activation failed
                 if self.caffeinateProcess == nil {
                     self.toggleView.isOn = false
-                    self.toggleView.statusText = L10n.allowedToSleep
+                    self.refreshWakeStatus()
                 }
             } else {
                 self.deactivate()
@@ -901,7 +1030,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func menuWillOpen(_ menu: NSMenu) {
-        let isCoffeeActive = caffeinateProcess != nil
+        refreshWakeStatus()
+        let isCoffeeActive = isKeepAwakeActive
         if let durationItem = menu.item(withTag: 101) {
             durationItem.isEnabled = isCoffeeActive
             durationItem.submenu?.items.forEach { $0.isEnabled = isCoffeeActive }
@@ -910,16 +1040,63 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if let blackoutItem = menu.item(withTag: 102) {
             blackoutItem.isEnabled = isCoffeeActive
         }
-        if !isCoffeeActive {
-            toggleView.statusText = L10n.allowedToSleep
-        }
     }
 
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         if menuItem.tag == 101 || menuItem.tag == 102 {
-            return caffeinateProcess != nil
+            return isKeepAwakeActive
         }
         return true
+    }
+
+    private func updateWakeMenuState(isActive: Bool) {
+        if let durationItem = statusItem.menu?.item(withTag: 101) {
+            durationItem.isEnabled = isActive
+            durationItem.submenu?.items.forEach { $0.isEnabled = isActive }
+            durationItem.title = "\(L10n.setDuration)  \(selectedDuration.localizedName)"
+        }
+        if let blackoutItem = statusItem.menu?.item(withTag: 102) {
+            blackoutItem.isEnabled = isActive
+            if !isActive {
+                blackoutItem.state = .off
+            }
+        }
+    }
+
+    private func refreshWakeStatus() {
+        if let process = caffeinateProcess, !process.isRunning {
+            // The termination handler is asynchronous. Handle the dead child
+            // here as well so a menu refresh cannot leave Blackout active in
+            // the small window before that handler reaches the main queue.
+            handleCaffeinateTermination(process)
+            return
+        }
+
+        let isActive = isKeepAwakeActive
+        updateWakeMenuState(isActive: isActive)
+
+        guard !isActive else {
+            toggleView.isOn = true
+            return
+        }
+
+        let state = SystemPowerStateReader.shared.read(
+            forProcessID: ProcessInfo.processInfo.processIdentifier
+        )
+        setStatusBarIcon(isAwake: false)
+        toggleView.isOn = false
+
+        if state.systemNeverSleeps {
+            if let minutes = state.displaySleepMinutes, minutes > 0 {
+                toggleView.statusText = L10n.systemNeverSleepsWithDisplaySleep(minutes)
+            } else {
+                toggleView.statusText = L10n.systemNeverSleeps
+            }
+        } else if state.hasExternalCaffeinate {
+            toggleView.statusText = L10n.otherCaffeinateActive
+        } else {
+            toggleView.statusText = L10n.allowedToSleep
+        }
     }
 
     @objc func changeDuration(_ sender: NSMenuItem) {
@@ -951,9 +1128,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func enableBlackoutMode() {
         guard !isBlackoutModeActive else { return }
 
-        if caffeinateProcess == nil {
+        if !isKeepAwakeActive {
             activate()
-            guard caffeinateProcess != nil else { return }
+            guard isKeepAwakeActive else { return }
         }
 
         let recoveryFile = FileManager.default.temporaryDirectory
@@ -987,7 +1164,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         )
     }
 
-    func disableBlackoutMode(autoRestored: Bool = false) {
+    func disableBlackoutMode(autoRestored: Bool = false, notify: Bool = true) {
         guard isBlackoutModeActive else { return }
         isBlackoutModeActive = false
 
@@ -999,16 +1176,18 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             blackoutItem.state = .off
         }
 
-        if autoRestored {
-            showNotification(
-                title: L10n.blackoutAutoRestoredTitle,
-                body: L10n.blackoutAutoRestoredBody
-            )
-        } else {
-            showNotification(
-                title: L10n.blackoutDeactivatedTitle,
-                body: L10n.blackoutDeactivatedBody
-            )
+        if notify {
+            if autoRestored {
+                showNotification(
+                    title: L10n.blackoutAutoRestoredTitle,
+                    body: L10n.blackoutAutoRestoredBody
+                )
+            } else {
+                showNotification(
+                    title: L10n.blackoutDeactivatedTitle,
+                    body: L10n.blackoutDeactivatedBody
+                )
+            }
         }
     }
 
@@ -1059,6 +1238,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/caffeinate")
         process.arguments = ["-dims", "-w", String(ProcessInfo.processInfo.processIdentifier)]
+        process.terminationHandler = { [weak self] terminatedProcess in
+            DispatchQueue.main.async { [weak self] in
+                self?.handleCaffeinateTermination(terminatedProcess)
+            }
+        }
 
         do {
             try process.run()
@@ -1084,14 +1268,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // Update toggle and menu state
         toggleView.isOn = true
 
-        // Enable Set Duration and Blackout Mode options
-        if let durationItem = statusItem.menu?.item(withTag: 101) {
-            durationItem.isEnabled = true
-            durationItem.submenu?.items.forEach { $0.isEnabled = true }
-        }
-        if let blackoutItem = statusItem.menu?.item(withTag: 102) {
-            blackoutItem.isEnabled = true
-        }
+        updateWakeMenuState(isActive: true)
 
         showNotification(title: L10n.activatedTitle, body: L10n.activatedBody(duration: selectedDuration.localizedName))
     }
@@ -1110,19 +1287,27 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         // Update toggle and menu state
         toggleView.isOn = false
-        toggleView.statusText = L10n.allowedToSleep
-
-        // Disable Set Duration and Blackout Mode options
-        if let durationItem = statusItem.menu?.item(withTag: 101) {
-            durationItem.isEnabled = false
-            durationItem.submenu?.items.forEach { $0.isEnabled = false }
-        }
-        if let blackoutItem = statusItem.menu?.item(withTag: 102) {
-            blackoutItem.isEnabled = false
-            blackoutItem.state = .off
-        }
+        refreshWakeStatus()
 
         showNotification(title: L10n.deactivatedTitle, body: L10n.deactivatedBody)
+    }
+
+    private func handleCaffeinateTermination(_ terminatedProcess: Process) {
+        guard caffeinateProcess === terminatedProcess else { return }
+
+        caffeinateProcess = nil
+        timer?.invalidate()
+        timer = nil
+        endTime = nil
+
+        // A dead assertion must never leave Blackout Mode active. Restore the
+        // displays even when caffeinate was killed by the system or a crash.
+        if isBlackoutModeActive {
+            disableBlackoutMode(notify: false)
+        }
+
+        refreshWakeStatus()
+        print("KeepAwake: caffeinate terminated unexpectedly")
     }
 
     func startTimer(seconds: Double) {
