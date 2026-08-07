@@ -415,12 +415,145 @@ class InputMonitor {
     }
 }
 
+// MARK: - Localization (i18n)
+
+enum Language: String {
+    case en, zh
+}
+
+struct L10n {
+    static let current: Language = {
+        let preferred = Locale.preferredLanguages.first ?? "en"
+        if preferred.hasPrefix("zh") {
+            return .zh
+        }
+        return .en
+    }()
+    
+    // Use this helper for all localized strings
+    static func localized(_ en: String, zh: String) -> String {
+        switch current {
+        case .zh: return zh
+        case .en: return en
+        }
+    }
+    
+    // MARK: - Toggle View
+    static var sleepLabel: String { localized("💤 Sleep", zh: "💤 睡眠") }
+    static var coffeeLabel: String { localized("☕️ Coffee", zh: "☕️ 咖啡") }
+    static var allowedToSleep: String { localized("Normal system sleep", zh: "按系统设置休眠") }
+    
+    // MARK: - Menu Items
+    static var setDuration: String { localized("Set Duration", zh: "设置时长") }
+    static var blackoutMode: String { localized("Blackout Mode (Energy Saving)", zh: "息屏模式（省电）") }
+    static var aboutKeepAwake: String { localized("About KeepAwake", zh: "关于 KeepAwake") }
+    static var quit: String { localized("Quit", zh: "退出") }
+    
+    // MARK: - Durations (display names)
+    static var indefinitely: String { localized("Keep computer awake", zh: "保持电脑唤醒") }
+    static var fifteenMinutes: String { localized("15 Minutes", zh: "15 分钟") }
+    static var oneHour: String { localized("1 Hour", zh: "1 小时") }
+    static var threeHours: String { localized("3 Hours", zh: "3 小时") }
+    static var untilEightAM: String { localized("Until 8:00 AM", zh: "直到早上 8:00") }
+    
+    // MARK: - Notifications
+    static var blackoutActivatedTitle: String { localized("Blackout Mode Activated", zh: "息屏模式已激活") }
+    static var blackoutActivatedBody: String { localized("All screens powered off. Shake mouse rapidly or press any key 3x to restore.", zh: "所有屏幕已关闭。快速摇动鼠标或连按 3 次任意键可恢复。") }
+    static var blackoutAutoRestoredTitle: String { localized("Blackout Mode Auto-Restored", zh: "息屏模式已自动恢复") }
+    static var blackoutAutoRestoredBody: String { localized("Screens restored due to detected user input.", zh: "检测到用户输入，屏幕已恢复。") }
+    static var blackoutDeactivatedTitle: String { localized("Blackout Mode Deactivated", zh: "息屏模式已关闭") }
+    static var blackoutDeactivatedBody: String { localized("Screen brightness restored.", zh: "屏幕亮度已恢复。") }
+    static var activatedTitle: String { localized("Keep Awake Activated", zh: "保持唤醒已激活") }
+    static func activatedBody(duration: String) -> String { localized("Mac will stay awake: \(duration)", zh: "Mac 将保持唤醒：\(duration)") }
+    static var deactivatedTitle: String { localized("Keep Awake Deactivated", zh: "保持唤醒已关闭") }
+    static var deactivatedBody: String { localized("Normal sleep settings restored.", zh: "已恢复正常睡眠设置。") }
+    
+    // MARK: - Timer
+    static func remaining(_ timeStr: String) -> String { localized("Keep awake (\(timeStr) remaining)", zh: "保持电脑唤醒（剩余 \(timeStr)）") }
+    
+    // MARK: - About
+    static var aboutTitle: String { localized("About KeepAwake", zh: "关于 KeepAwake") }
+    static var aboutBody: String {
+        localized(
+            """
+            KeepAwake is a 100% native macOS menubar app that prevents your Mac from sleeping or locking.
+            
+            Includes Blackout Mode to safely dim displays to 0% for automated agents and Energy Saving.
+            
+            Features:
+            • DDC/CI power control for external monitors
+            • Gamma fallback for unsupported displays
+            • Safety auto-restore via mouse/keyboard
+            
+            Built with Swift & AppKit.
+            Version 1.2.0
+            """,
+            zh: """
+            KeepAwake 是一款 100% 原生 macOS 菜单栏应用，可防止 Mac 进入睡眠或锁定。
+            
+            包含息屏模式，可安全地将显示器亮度降至 0%，适用于自动化代理和省电场景。
+            
+            功能特色：
+            • DDC/CI 外接显示器电源控制
+            • 不支持的显示器使用 Gamma 降级方案
+            • 通过鼠标/键盘安全自动恢复
+            
+            使用 Swift 和 AppKit 构建。
+            版本 1.2.0
+            """
+        )
+    }
+    static var ok: String { localized("OK", zh: "好") }
+}
+
+enum DurationOption: String, CaseIterable {
+    case indefinitely
+    case fifteenMinutes
+    case oneHour
+    case threeHours
+    case untilEightAM
+    
+    var localizedName: String {
+        switch self {
+        case .indefinitely: return L10n.indefinitely
+        case .fifteenMinutes: return L10n.fifteenMinutes
+        case .oneHour: return L10n.oneHour
+        case .threeHours: return L10n.threeHours
+        case .untilEightAM: return L10n.untilEightAM
+        }
+    }
+    
+    var seconds: Double? {
+        switch self {
+        case .indefinitely: return nil
+        case .fifteenMinutes: return 15 * 60
+        case .oneHour: return 60 * 60
+        case .threeHours: return 3 * 60 * 60
+        case .untilEightAM:
+            let calendar = Calendar.current
+            let now = Date()
+            var components = calendar.dateComponents([.year, .month, .day], from: now)
+            components.hour = 8
+            components.minute = 0
+            components.second = 0
+            guard let targetDateToday = calendar.date(from: components) else { return nil }
+            var targetDate = targetDateToday
+            if targetDate <= now {
+                if let tomorrow = calendar.date(byAdding: .day, value: 1, to: targetDateToday) {
+                    targetDate = tomorrow
+                }
+            }
+            return targetDate.timeIntervalSince(now)
+        }
+    }
+}
+
 // MARK: - ToggleMenuItemView (custom NSSwitch toggle for menu bar)
 
 class ToggleMenuItemView: NSView {
     let toggleSwitch = NSSwitch()
-    private let sleepLabel = NSTextField(labelWithString: "💤 Sleep")
-    private let coffeeLabel = NSTextField(labelWithString: "☕️ Coffee")
+    private let sleepLabel = NSTextField(labelWithString: "")
+    private let coffeeLabel = NSTextField(labelWithString: "")
     private let statusLabel = NSTextField(labelWithString: "")
 
     var onToggle: ((Bool) -> Void)?
@@ -450,6 +583,9 @@ class ToggleMenuItemView: NSView {
     }
 
     private func setupUI() {
+        sleepLabel.stringValue = L10n.sleepLabel
+        coffeeLabel.stringValue = L10n.coffeeLabel
+
         // Configure text labels
         for label in [sleepLabel, coffeeLabel] {
             label.isBezeled = false
@@ -493,7 +629,7 @@ class ToggleMenuItemView: NSView {
             coffeeLabel.centerYAnchor.constraint(equalTo: sleepLabel.centerYAnchor),
 
             statusLabel.centerXAnchor.constraint(equalTo: centerXAnchor),
-            statusLabel.topAnchor.constraint(equalTo: toggleSwitch.bottomAnchor, constant: 2),
+            statusLabel.topAnchor.constraint(equalTo: toggleSwitch.bottomAnchor, constant: 8),
             statusLabel.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: 10),
             statusLabel.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -10),
         ])
@@ -520,10 +656,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var caffeinateProcess: Process?
     var timer: Timer?
     var endTime: Date?
-    var selectedDurationName: String = "Indefinitely"
+    var selectedDuration: DurationOption = .indefinitely
 
     // UI references
-    var toggleView: ToggleMenuItemView?
+    let toggleView = ToggleMenuItemView()
 
     // Blackout Mode state
     var isBlackoutModeActive: Bool = false
@@ -533,9 +669,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         requestNotificationPermission()
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        if let button = statusItem.button {
-            button.title = "💤"
-        }
+        setStatusBarIcon(isAwake: false)
 
         constructMenu()
     }
@@ -555,45 +689,44 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         // ── Custom toggle switch ──
         let toggleItem = NSMenuItem()
-        let toggle = ToggleMenuItemView()
-        toggle.onToggle = { [weak self] isOn in
+        toggleView.onToggle = { [weak self] isOn in
             guard let self = self else { return }
             if isOn {
                 self.activate()
                 // Revert if activation failed
                 if self.caffeinateProcess == nil {
-                    toggle.isOn = false
-                    toggle.statusText = "Allowed to Sleep"
+                    self.toggleView.isOn = false
+                    self.toggleView.statusText = L10n.allowedToSleep
                 }
             } else {
                 self.deactivate()
             }
         }
-        toggleItem.view = toggle
-        self.toggleView = toggle
-        toggle.statusText = "Allowed to Sleep"
+        toggleItem.view = toggleView
+        toggleView.statusText = L10n.allowedToSleep
         menu.addItem(toggleItem)
 
         menu.addItem(NSMenuItem.separator())
 
         // ── Set Duration submenu (disabled by default when Sleep is active) ──
-        let durationMenuItem = NSMenuItem(title: "Set Duration", action: nil, keyEquivalent: "")
+        let durationMenuItem = NSMenuItem(title: "\(L10n.setDuration)  \(selectedDuration.localizedName)", action: nil, keyEquivalent: "")
         durationMenuItem.tag = 101
         durationMenuItem.isEnabled = false
         let durationSubmenu = NSMenu()
         durationSubmenu.autoenablesItems = false
-        let durations = ["Indefinitely", "15 Minutes", "1 Hour", "3 Hours", "Until 8:00 AM"]
-        for duration in durations {
-            let item = NSMenuItem(title: duration, action: #selector(changeDuration(_:)), keyEquivalent: "")
+        
+        for duration in DurationOption.allCases {
+            let item = NSMenuItem(title: duration.localizedName, action: #selector(changeDuration(_:)), keyEquivalent: "")
+            item.representedObject = duration.rawValue
             item.isEnabled = false
-            item.state = (duration == selectedDurationName) ? .on : .off
+            item.state = (duration == selectedDuration) ? .on : .off
             durationSubmenu.addItem(item)
         }
         durationMenuItem.submenu = durationSubmenu
         menu.addItem(durationMenuItem)
 
         // ── Blackout Mode toggle (disabled by default when Sleep is active) ──
-        let blackoutItem = NSMenuItem(title: "Blackout Mode (Energy Saving)", action: #selector(toggleBlackoutMode(_:)), keyEquivalent: "")
+        let blackoutItem = NSMenuItem(title: L10n.blackoutMode, action: #selector(toggleBlackoutMode(_:)), keyEquivalent: "")
         blackoutItem.tag = 102
         blackoutItem.isEnabled = false
         menu.addItem(blackoutItem)
@@ -601,10 +734,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(NSMenuItem.separator())
 
         // ── About & Quit ──
-        let aboutItem = NSMenuItem(title: "About KeepAwake", action: #selector(showAbout(_:)), keyEquivalent: "")
+        let aboutItem = NSMenuItem(title: L10n.aboutKeepAwake, action: #selector(openAppInfo(_:)), keyEquivalent: "")
+        aboutItem.image = nil // Ensure no system icon is added
         aboutItem.isEnabled = true
         menu.addItem(aboutItem)
-        let quitItem = NSMenuItem(title: "Quit", action: #selector(quitApp(_:)), keyEquivalent: "q")
+        let quitItem = NSMenuItem(title: L10n.quit, action: #selector(quitApp(_:)), keyEquivalent: "q")
         quitItem.isEnabled = true
         menu.addItem(quitItem)
 
@@ -616,12 +750,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if let durationItem = menu.item(withTag: 101) {
             durationItem.isEnabled = isCoffeeActive
             durationItem.submenu?.items.forEach { $0.isEnabled = isCoffeeActive }
+            durationItem.title = "\(L10n.setDuration)  \(selectedDuration.localizedName)"
         }
         if let blackoutItem = menu.item(withTag: 102) {
             blackoutItem.isEnabled = isCoffeeActive
         }
         if !isCoffeeActive {
-            toggleView?.statusText = "Allowed to Sleep"
+            toggleView.statusText = L10n.allowedToSleep
         }
     }
 
@@ -633,16 +768,20 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc func changeDuration(_ sender: NSMenuItem) {
-        selectedDurationName = sender.title
+        guard let rawValue = sender.representedObject as? String,
+              let duration = DurationOption(rawValue: rawValue) else { return }
+        
+        selectedDuration = duration
 
         // Update checkmarks in submenu
         if let submenu = sender.menu {
             for item in submenu.items {
-                item.state = (item.title == selectedDurationName) ? .on : .off
+                let itemDurationRaw = item.representedObject as? String
+                item.state = (itemDurationRaw == duration.rawValue) ? .on : .off
             }
         }
 
-        // Activate/reactivate with new duration (also turns on Coffee if off)
+        // Activate/reactivate with new duration
         activate()
     }
 
@@ -673,8 +812,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
 
         showNotification(
-            title: "Blackout Mode Activated",
-            body: "All screens powered off. Shake mouse rapidly or press any key 3x to restore."
+            title: L10n.blackoutActivatedTitle,
+            body: L10n.blackoutActivatedBody
         )
     }
 
@@ -691,43 +830,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         if autoRestored {
             showNotification(
-                title: "Blackout Mode Auto-Restored",
-                body: "Screens restored due to detected user input."
+                title: L10n.blackoutAutoRestoredTitle,
+                body: L10n.blackoutAutoRestoredBody
             )
         } else {
             showNotification(
-                title: "Blackout Mode Deactivated",
-                body: "Screen brightness restored."
+                title: L10n.blackoutDeactivatedTitle,
+                body: L10n.blackoutDeactivatedBody
             )
-        }
-    }
-
-    func getDurationSeconds() -> Double? {
-        switch selectedDurationName {
-        case "15 Minutes":
-            return 15 * 60
-        case "1 Hour":
-            return 60 * 60
-        case "3 Hours":
-            return 3 * 60 * 60
-        case "Until 8:00 AM":
-            let calendar = Calendar.current
-            let now = Date()
-            var components = calendar.dateComponents([.year, .month, .day], from: now)
-            components.hour = 8
-            components.minute = 0
-            components.second = 0
-
-            guard let targetDateToday = calendar.date(from: components) else { return nil }
-            var targetDate = targetDateToday
-            if targetDate <= now {
-                if let tomorrow = calendar.date(byAdding: .day, value: 1, to: targetDateToday) {
-                    targetDate = tomorrow
-                }
-            }
-            return targetDate.timeIntervalSince(now)
-        default:
-            return nil
         }
     }
 
@@ -743,26 +853,24 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             caffeinateProcess = process
         } catch {
             print("Failed to run caffeinate: \(error)")
-            toggleView?.isOn = false
-            toggleView?.statusText = ""
+            toggleView.isOn = false
+            toggleView.statusText = ""
             return
         }
 
         // Timer setup
-        if let seconds = getDurationSeconds() {
+        if let seconds = selectedDuration.seconds {
             startTimer(seconds: seconds)
         } else {
             timer?.invalidate()
             timer = nil
             endTime = nil
-            if let button = statusItem.button {
-                button.title = "☕️"
-            }
-            toggleView?.statusText = selectedDurationName
+            setStatusBarIcon(isAwake: true)
+            toggleView.statusText = selectedDuration.localizedName
         }
 
         // Update toggle and menu state
-        toggleView?.isOn = true
+        toggleView.isOn = true
 
         // Enable Set Duration and Blackout Mode options
         if let durationItem = statusItem.menu?.item(withTag: 101) {
@@ -773,7 +881,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             blackoutItem.isEnabled = true
         }
 
-        showNotification(title: "Keep Awake Activated", body: "Mac will stay awake: \(selectedDurationName)")
+        showNotification(title: L10n.activatedTitle, body: L10n.activatedBody(duration: selectedDuration.localizedName))
     }
 
     func deactivate() {
@@ -786,13 +894,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         endTime = nil
 
         // Update menu bar icon
-        if let button = statusItem.button {
-            button.title = "💤"
-        }
+        setStatusBarIcon(isAwake: false)
 
         // Update toggle and menu state
-        toggleView?.isOn = false
-        toggleView?.statusText = "Allowed to Sleep"
+        toggleView.isOn = false
+        toggleView.statusText = L10n.allowedToSleep
 
         // Disable Set Duration and Blackout Mode options
         if let durationItem = statusItem.menu?.item(withTag: 101) {
@@ -804,7 +910,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             blackoutItem.state = .off
         }
 
-        showNotification(title: "Keep Awake Deactivated", body: "Normal sleep settings restored.")
+        showNotification(title: L10n.deactivatedTitle, body: L10n.deactivatedBody)
     }
 
     func startTimer(seconds: Double) {
@@ -833,17 +939,68 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let minutes = (remainingInt % 3600) / 60
         let seconds = remainingInt % 60
 
-        if let button = statusItem.button {
-            if hours > 0 {
-                let timeStr = String(format: "%02d:%02d:%02d", hours, minutes, seconds)
-                button.title = "☕️ " + timeStr
-                toggleView?.statusText = timeStr + " remaining"
-            } else {
-                let timeStr = String(format: "%02d:%02d", minutes, seconds)
-                button.title = "☕️ " + timeStr
-                toggleView?.statusText = timeStr + " remaining"
-            }
+        if hours > 0 {
+            let timeStr = String(format: "%02d:%02d:%02d", hours, minutes, seconds)
+            setStatusBarIcon(isAwake: true, timeStr: timeStr)
+            toggleView.statusText = L10n.remaining(timeStr)
+        } else {
+            let timeStr = String(format: "%02d:%02d", minutes, seconds)
+            setStatusBarIcon(isAwake: true, timeStr: timeStr)
+            toggleView.statusText = L10n.remaining(timeStr)
         }
+    }
+
+    func setStatusBarIcon(isAwake: Bool, timeStr: String? = nil) {
+        guard let button = statusItem.button else { return }
+        if isAwake {
+            button.image = createCoffeeIcon()
+        } else {
+            button.image = createSleepIcon()
+        }
+        button.title = timeStr.map { " " + $0 } ?? ""
+    }
+
+    /// Draw a 💤-style icon: three z's from bottom-left (small) to upper-right (large)
+    func createSleepIcon() -> NSImage {
+        let size = NSSize(width: 18, height: 18)
+        let image = NSImage(size: size, flipped: true) { rect in
+            let fontSizes: [CGFloat] = [6, 8.5, 11]
+            let positions: [NSPoint] = [
+                NSPoint(x: 1, y: 11),   // small z, bottom-left
+                NSPoint(x: 5, y: 5),    // medium z, middle
+                NSPoint(x: 9, y: -1),   // large Z, upper-right
+            ]
+            for i in 0..<3 {
+                let attrs: [NSAttributedString.Key: Any] = [
+                    .font: NSFont.systemFont(ofSize: fontSizes[i], weight: .bold),
+                    .foregroundColor: NSColor.black
+                ]
+                "z".draw(at: positions[i], withAttributes: attrs)
+            }
+            return true
+        }
+        image.isTemplate = true
+        return image
+    }
+
+    /// Render the coffee SF Symbol into a fixed 18x18 canvas to avoid width jitter
+    func createCoffeeIcon() -> NSImage {
+        let size = NSSize(width: 18, height: 18)
+        let image = NSImage(size: size, flipped: false) { rect in
+            if let base = NSImage(systemSymbolName: "cup.and.saucer.fill", accessibilityDescription: nil) {
+                let config = NSImage.SymbolConfiguration(pointSize: 13, weight: .medium)
+                if let configuredImage = base.withSymbolConfiguration(config) ?? base.copy() as? NSImage {
+                    // Center the image in the 18x18 canvas
+                    let imgSize = configuredImage.size
+                    let x = (size.width - imgSize.width) / 2.0
+                    let y = (size.height - imgSize.height) / 2.0
+                    configuredImage.draw(in: NSRect(x: x, y: y, width: imgSize.width, height: imgSize.height))
+                }
+            }
+            return true
+        }
+        image.isTemplate = true
+        return image
     }
 
     func killCaffeinate() {
@@ -868,24 +1025,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         print("Notification - \(title): \(body)")
     }
 
-    @objc func showAbout(_ sender: NSMenuItem) {
+    @objc func openAppInfo(_ sender: NSMenuItem) {
         let alert = NSAlert()
-        alert.messageText = "About KeepAwake"
-        alert.informativeText = """
-        KeepAwake is a 100% native macOS menubar app that prevents your Mac from sleeping or locking.
-
-        Includes Blackout Mode to safely dim displays to 0% for automated agents and Energy Saving.
-
-        Features:
-        • DDC/CI power control for external monitors
-        • Gamma fallback for unsupported displays
-        • Safety auto-restore via mouse/keyboard
-
-        Built with Swift & AppKit.
-        Version 1.2.0
-        """
+        alert.messageText = L10n.aboutTitle
+        alert.informativeText = L10n.aboutBody
         alert.alertStyle = .informational
-        alert.addButton(withTitle: "OK")
+        alert.addButton(withTitle: L10n.ok)
         alert.runModal()
     }
 
@@ -900,3 +1045,5 @@ let app = NSApplication.shared
 let delegate = AppDelegate()
 app.delegate = delegate
 app.run()
+
+
