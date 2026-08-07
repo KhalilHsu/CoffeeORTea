@@ -1,66 +1,60 @@
-# KeepAwake (咖啡或茶 CoffeeORTea) ☕️
+# KeepAwake（咖啡或茶 CoffeeORTea）☕️
 
-**KeepAwake** 是一个 100% 原生的 macOS 状态栏（菜单栏）小工具。它通过调用系统底层的 `caffeinate` 断言，可以一键阻止 Mac 息屏和锁屏。同时，它还内置了 **“节能运行模式 (Blackout Mode)”**，可以在屏幕完全变黑（亮度降为0，节省90%以上显示器功耗）的同时保持系统桌面正常渲染，完美支持 AI 代理（如 Computer Use）在后台截图并执行任务。
+KeepAwake 是一个原生 macOS 菜单栏工具，用系统 `caffeinate` 断言阻止 Mac 休眠和锁定，并提供定时保持唤醒与 Blackout Mode。
 
----
+Blackout Mode 的默认策略是把内置屏幕、外接屏亮度降到 0，而不是发送显示器断电命令。这样可以尽量保持显示器仍在系统图形拓扑中，适合需要后台截图或使用 Computer Use 的场景。不同显示器的 DDC/Gamma 行为仍需在真实硬件上验证，项目不保证所有显示器都能保持截图可用。
 
-## 📂 项目文件清单
+## 功能
 
-在 `CoffeeORTea` 文件夹中包含以下文件：
-*   **`main.swift`**：纯 Swift 编写的程序源码（结合 AppKit 与私有 `DisplayServices` 框架）。
-*   **`Info.plist`**：应用属性配置文件，配置为后台 Agent，不在 Dock 栏显示。
-*   **`build.sh`**：一键编译打包脚本。
-*   **`KeepAwake.app`**：已编译打包完成的 macOS 应用程序。
-*   **`README.md`**：本说明文档。
+- 菜单栏显示睡眠/咖啡状态。
+- 永久或 15 分钟、1 小时、3 小时、直到早上 8:00 的保持唤醒时长。
+- Blackout Mode：内置屏使用 DisplayServices，外接屏优先使用 DDC/CI 亮度控制，不支持时使用 Gamma 降级方案。
+- Blackout 状态写入临时恢复文件，并启动独立 watchdog；主进程异常退出后，watchdog 会尝试恢复显示器状态。
+- 鼠标快速移动或 2 秒内连续按 3 次键，可触发显示恢复。
+- 中英文菜单和通知，语言跟随 macOS 首选语言。
 
----
+## 要求
 
-## 🚀 如何运行与使用
+- macOS 13 或更高版本。
+- Swift command-line tools；本项目不依赖第三方包或 Xcode 工程。
+- 外接屏 DDC/CI 支持取决于显示器、连接方式和 macOS/Apple Silicon 环境。
 
-### 1. 运行应用
-*   可以直接在 Finder 中双击 **`KeepAwake.app`** 启动。
-*   或者在终端中运行：
-    ```bash
-    open KeepAwake.app
-    ```
+## 构建和运行
 
-### 2. 界面操作
-启动后，您的屏幕右上角菜单栏会多出一个 **`💤`** 图标：
-*   **Prevent Sleep (开启防休眠)**：点击即可切换状态。开启后图标变为 **`☕️`**，Mac 将永远不会息屏和锁屏。
-*   **Set Duration (设定时长)**：可以设定临时防休眠的时长：
-    *   *Indefinitely (永久)*
-    *   *15 Minutes (15分钟)*
-    *   *1 Hour (1小时)*
-    *   *3 Hours (3小时)*
-    *   *Until 8:00 AM (直到早上8点)* —— 设定时长后，菜单栏会自动显示实时倒计时（例如 `☕️ 01:29:45`）。
-*   **Blackout Mode (节能运行模式)**：
-    *   勾选此项后，软件会记录当前屏幕亮度，并将所有显示器的硬件亮度强制调至 `0.0`（完全黑屏，极其省电）。
-    *   此时系统桌面仍在后台正常渲染，截屏与模拟键鼠接口完好，**适合 Agent (Computer Use) 挂机使用**。
-    *   **如何恢复屏幕亮度？**
-        1. 随时按键盘上的亮度增加键（**F2**）即可手动调亮。
-        2. 在菜单中取消勾选 “Blackout Mode”，或点击 “Prevent Sleep” 关闭防休眠，屏幕亮度会自动还原。
-*   **Quit (退出)**：点击退出。由于本程序将 `caffeinate` 进程与主程序的 PID 绑定，退出时会自动释放所有系统断言，绝无后台残留进程。
+```bash
+git clone https://github.com/KhalilHsu/CoffeeORTea.git
+cd CoffeeORTea
+./build.sh
+open KeepAwake.app
+```
 
----
+`build.sh` 默认生成 arm64 + x86_64 universal binary，并使用 ad-hoc 签名，适合本机运行。也可以指定本机证书：
 
-## 🛠️ 如何重新编译
+```bash
+CODESIGN_IDENTITY="Developer ID Application: Your Name" ./build.sh
+```
 
-如果您修改了 `main.swift` 源码，可以通过以下步骤重新编译：
+构建产物 `KeepAwake.app` 和编译缓存不会提交到 Git；源码、构建脚本、许可证和图标资源会保留在仓库中。
 
-1. 打开终端，进入此文件夹：
-    ```bash
-    cd ~/Desktop/CoffeeORTea
-    ```
-2. 运行编译脚本：
-    ```bash
-    ./build.sh
-    ```
-3. 编译成功后，会重新生成 `KeepAwake.app`。
+## 安全边界和已知限制
 
----
+- `caffeinate -w <PID>` 会把断言绑定到 KeepAwake 进程；KeepAwake 退出后，`caffeinate` 会结束并释放对应的防休眠断言。
+- 显示器亮度恢复由 KeepAwake 的 watchdog 做 best-effort 保护。系统断电、watchdog 自身被杀、极端系统崩溃或显示器拒绝恢复命令时，不能保证 100% 恢复。
+- 项目使用 macOS 私有的 DisplayServices 和 Apple Silicon 上的 IOAVService/`@_silgen_name` DDC 接口，不适合提交 Mac App Store。公开发布时应使用自己的 Developer ID 签名并完成 notarization。
+- Blackout Mode 不会模拟键鼠，也不会绕过 macOS 的隐私权限。全局键盘自动恢复可能需要用户授予 Input Monitoring/辅助功能权限；鼠标恢复仍可独立工作。
 
-## 🌟 技术特色
+## 项目结构
 
-1.  **极度轻量与省电**：编译后的 App 仅约 **100KB**，内存占用极低，相比 Python 打包版本缩小了 400 倍。
-2.  **安全性与防泄漏**：使用 `caffeinate -w <PID>`。当小工具退出或意外崩溃时，macOS 系统会自动清理关联的防休眠断言，确保系统能正常休眠。
-3.  **零依赖**：基于 Swift 与原生 macOS 框架开发，无需安装第三方开发包或复杂的运行库。
+- `main.swift`：AppKit 菜单栏 UI、`caffeinate` 生命周期、显示器控制和恢复 watchdog。
+- `Info.plist`：菜单栏 Agent 配置、版本号和图标声明。
+- `build.sh`：universal binary、App bundle、图标复制和签名构建脚本。
+- `AppIcon.png` / `AppIcon.icns`：KeepAwake 应用图标。
+- `LICENSE`：MIT License。
+
+## 版本
+
+当前版本：`1.2.0`。
+
+## 许可证
+
+本项目使用 [MIT License](LICENSE)。
