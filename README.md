@@ -1,6 +1,4 @@
-# KeepAwake（咖啡或茶 CoffeeORTea）
-
-# English
+# KeepAwake
 
 KeepAwake is a native macOS menu bar utility. When enabled, it uses the system `caffeinate` command to prevent idle system and display sleep, with timed keep-awake options and Blackout Mode. It does not bypass manual locking, lid-closure behavior, or authentication.
 
@@ -87,6 +85,7 @@ This project is released under the [MIT License](LICENSE).
 
 ---
 
+# 中文
 
 KeepAwake 是一个原生 macOS 菜单栏工具。开启后，它使用系统 `caffeinate` 保持 Mac 和显示器不因空闲而休眠，并提供定时保持唤醒与 Blackout Mode（息屏模式）。它不会绕过手动锁屏、合盖或身份验证。
 
