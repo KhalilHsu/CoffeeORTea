@@ -24,6 +24,11 @@ func IOAVServiceReadI2C(_ service: CFTypeRef, _ chipAddress: UInt32, _ dataAddre
 
 // MARK: - DDCManager (DDC/CI protocol for external monitors)
 
+struct DDCServiceDescriptor {
+    let service: CFTypeRef
+    let registryPath: String
+}
+
 class DDCManager {
     static let shared = DDCManager()
 
@@ -43,9 +48,9 @@ class DDCManager {
         return ([destAddress, hostAddress] + data).reduce(UInt8(0)) { $0 ^ $1 }
     }
 
-    func getExternalAVServices() -> [CFTypeRef] {
+    func getExternalAVServices() -> [DDCServiceDescriptor] {
         #if arch(arm64)
-        var services: [CFTypeRef] = []
+        var services: [DDCServiceDescriptor] = []
         var iterator: io_iterator_t = 0
 
         guard IOServiceGetMatchingServices(
@@ -62,8 +67,13 @@ class DDCManager {
             ) {
                 if let location = locationRef.takeRetainedValue() as? String,
                    location == "External" {
-                    if let avService = IOAVServiceCreateWithService(kCFAllocatorDefault, service) {
-                        services.append(avService.takeRetainedValue())
+                    let registryPath = registryPath(for: service)
+                    if !registryPath.isEmpty,
+                       let avService = IOAVServiceCreateWithService(kCFAllocatorDefault, service) {
+                        services.append(DDCServiceDescriptor(
+                            service: avService.takeRetainedValue(),
+                            registryPath: registryPath
+                        ))
                     }
                 }
             }
@@ -75,6 +85,17 @@ class DDCManager {
         return []
         #endif
     }
+
+    #if arch(arm64)
+    private func registryPath(for service: io_service_t) -> String {
+        var path = [CChar](repeating: 0, count: 1024)
+        let result = path.withUnsafeMutableBufferPointer { buffer in
+            IORegistryEntryGetPath(service, kIOServicePlane, buffer.baseAddress!)
+        }
+        guard result == KERN_SUCCESS else { return "" }
+        return String(cString: path)
+    }
+    #endif
 
     func readVCPFeature(service: CFTypeRef, vcp: UInt8) -> (current: UInt16, max: UInt16)? {
         #if arch(arm64)
@@ -173,8 +194,28 @@ struct BuiltInDisplaySnapshot: Codable {
 }
 
 struct DDCDisplaySnapshot: Codable {
-    let index: Int
+    // Registry paths avoid restoring brightness to the wrong monitor when the
+    // order of DCPAVServiceProxy entries changes between processes.
+    let registryPath: String?
     let brightness: UInt16?
+
+    private enum CodingKeys: String, CodingKey {
+        case registryPath
+        case brightness
+    }
+
+    init(registryPath: String, brightness: UInt16) {
+        self.registryPath = registryPath
+        self.brightness = brightness
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        // A legacy recovery file may contain only `index`. Decode it without
+        // using that unsafe positional mapping; the display entry is skipped.
+        registryPath = try container.decodeIfPresent(String.self, forKey: .registryPath)
+        brightness = try container.decodeIfPresent(UInt16.self, forKey: .brightness)
+    }
 }
 
 struct BlackoutRecoveryState: Codable {
@@ -223,21 +264,45 @@ class GammaManager {
         )
     }
 
-    func dimDisplay(displayID: CGDirectDisplayID, snapshot: GammaSnapshot? = nil) {
+    func dimDisplay(displayID: CGDirectDisplayID, snapshot: GammaSnapshot? = nil) -> Bool {
         if let snapshot = snapshot ?? capture(displayID: displayID) {
             remember(snapshot)
         }
-        CGSetDisplayTransferByFormula(displayID, 0, 0, 1, 0, 0, 1, 0, 0, 1)
+        let result = CGSetDisplayTransferByFormula(displayID, 0, 0, 1, 0, 0, 1, 0, 0, 1)
+        guard result == .success else {
+            print("GammaManager: Failed to dim display \(displayID) (error \(result.rawValue))")
+            return false
+        }
         print("GammaManager: Dimmed display \(displayID)")
+        return true
     }
 
-    func restore(snapshot: GammaSnapshot) {
+    func restore(snapshot: GammaSnapshot) -> Bool {
+        let sampleCount = Int(snapshot.count)
+        guard sampleCount > 0,
+              sampleCount <= 4096,
+              snapshot.red.count == snapshot.green.count,
+              snapshot.red.count == snapshot.blue.count,
+              sampleCount <= snapshot.red.count,
+              snapshot.red.count <= 4096,
+              snapshot.red.allSatisfy({ $0.isFinite && (0...1).contains($0) }),
+              snapshot.green.allSatisfy({ $0.isFinite && (0...1).contains($0) }),
+              snapshot.blue.allSatisfy({ $0.isFinite && (0...1).contains($0) }) else {
+            print("GammaManager: Refusing to restore an invalid recovery snapshot")
+            return false
+        }
+
         let displayID = CGDirectDisplayID(snapshot.displayID)
         var red = snapshot.red
         var green = snapshot.green
         var blue = snapshot.blue
-        CGSetDisplayTransferByTable(displayID, snapshot.count, &red, &green, &blue)
+        let result = CGSetDisplayTransferByTable(displayID, snapshot.count, &red, &green, &blue)
+        guard result == .success else {
+            print("GammaManager: Failed to restore display \(displayID) (error \(result.rawValue))")
+            return false
+        }
         print("GammaManager: Restored display \(displayID) from recovery state")
+        return true
     }
 
     func restoreDisplay(displayID: CGDirectDisplayID) {
@@ -260,7 +325,8 @@ enum DimMethod {
 
 struct DDCDisplayState {
     let service: CFTypeRef
-    let savedBrightness: UInt16?
+    let registryPath: String
+    let savedBrightness: UInt16
 }
 
 class BrightnessManager {
@@ -288,16 +354,23 @@ class BrightnessManager {
         }
     }
 
-    func getBrightness(displayID: CGDirectDisplayID) -> Float {
-        guard let getFunc = getBrightnessFunc else { return 1.0 }
+    func getBrightness(displayID: CGDirectDisplayID) -> Float? {
+        guard let getFunc = getBrightnessFunc else { return nil }
         var brightness: Float = 0.0
-        _ = getFunc(displayID, &brightness)
+        guard getFunc(displayID, &brightness) == 0,
+              brightness.isFinite,
+              (0.0...1.0).contains(brightness) else {
+            return nil
+        }
         return brightness
     }
 
-    func setBrightness(displayID: CGDirectDisplayID, level: Float) {
-        guard let setFunc = setBrightnessFunc else { return }
-        _ = setFunc(displayID, level)
+    @discardableResult
+    func setBrightness(displayID: CGDirectDisplayID, level: Float) -> Bool {
+        guard let setFunc = setBrightnessFunc,
+              level.isFinite,
+              (0.0...1.0).contains(level) else { return false }
+        return setFunc(displayID, level) == 0
     }
 
     func getActiveDisplays() -> [CGDirectDisplayID] {
@@ -319,8 +392,8 @@ class BrightnessManager {
         var gammaSnapshots: [GammaSnapshot] = []
 
         for display in displays {
-            if CGDisplayIsBuiltin(display) != 0 {
-                let saved = getBrightness(displayID: display)
+            if CGDisplayIsBuiltin(display) != 0,
+               let saved = getBrightness(displayID: display) {
                 dimmedDisplays[display] = .displayServices(savedBrightness: saved)
                 builtInSnapshots.append(BuiltInDisplaySnapshot(
                     displayID: display,
@@ -330,23 +403,36 @@ class BrightnessManager {
                 GammaManager.shared.remember(snapshot)
                 dimmedDisplays[display] = .gamma
                 gammaSnapshots.append(snapshot)
+            } else {
+                print("BrightnessManager: No safe dimming method for display \(display)")
             }
         }
 
         var ddcSnapshots: [DDCDisplaySnapshot] = []
         let avServices = DDCManager.shared.getExternalAVServices()
-        for (index, avService) in avServices.enumerated() {
-            var savedBrightness: UInt16?
-            if let reading = DDCManager.shared.readBrightness(service: avService) {
-                savedBrightness = reading.current
-                print("DDCManager: Saved brightness \(reading.current)/\(reading.max)")
+        for descriptor in avServices {
+            guard let reading = DDCManager.shared.readBrightness(service: descriptor.service) else {
+                // Never dim an external display if its original brightness
+                // cannot be read and therefore cannot be safely restored.
+                print("DDCManager: Skipping display with unreadable brightness state")
+                continue
             }
 
+            print("DDCManager: Saved brightness \(reading.current)/\(reading.max)")
             dimmedDDCServices.append(DDCDisplayState(
-                service: avService,
-                savedBrightness: savedBrightness
+                service: descriptor.service,
+                registryPath: descriptor.registryPath,
+                savedBrightness: reading.current
             ))
-            ddcSnapshots.append(DDCDisplaySnapshot(index: index, brightness: savedBrightness))
+            ddcSnapshots.append(DDCDisplaySnapshot(
+                registryPath: descriptor.registryPath,
+                brightness: reading.current
+            ))
+        }
+
+        guard !dimmedDisplays.isEmpty || !dimmedDDCServices.isEmpty else {
+            print("BrightnessManager: No display could be safely dimmed")
+            return false
         }
 
         let recoveryState = BlackoutRecoveryState(
@@ -364,11 +450,18 @@ class BrightnessManager {
         for (display, method) in dimmedDisplays {
             switch method {
             case .displayServices:
-                setBrightness(displayID: display, level: 0.0)
+                guard setBrightness(displayID: display, level: 0.0) else {
+                    print("BrightnessManager: Failed to dim built-in display \(display)")
+                    rollbackBlackout(recoveryFile: recoveryFile)
+                    return false
+                }
                 print("BrightnessManager: Dimmed built-in display \(display)")
             case .gamma:
                 if let snapshot = gammaSnapshots.first(where: { $0.displayID == display }) {
-                    GammaManager.shared.dimDisplay(displayID: display, snapshot: snapshot)
+                    guard GammaManager.shared.dimDisplay(displayID: display, snapshot: snapshot) else {
+                        rollbackBlackout(recoveryFile: recoveryFile)
+                        return false
+                    }
                 }
             }
         }
@@ -376,16 +469,28 @@ class BrightnessManager {
         // Keep external displays connected for screenshots and Computer Use.
         // DDC brightness 0 is deliberately used instead of VCP power-off.
         for state in dimmedDDCServices {
-            _ = DDCManager.shared.setBrightness(service: state.service, value: 0)
+            guard DDCManager.shared.setBrightness(service: state.service, value: 0) else {
+                print("BrightnessManager: Failed to dim external display at \(state.registryPath)")
+                rollbackBlackout(recoveryFile: recoveryFile)
+                return false
+            }
         }
 
         return true
     }
 
+    private func rollbackBlackout(recoveryFile: URL) {
+        restoreAllDisplays()
+        try? FileManager.default.removeItem(at: recoveryFile)
+    }
+
     func restoreAllDisplays() {
         for state in dimmedDDCServices {
-            if let savedBrightness = state.savedBrightness {
-                _ = DDCManager.shared.setBrightness(service: state.service, value: savedBrightness)
+            if !DDCManager.shared.setBrightness(
+                service: state.service,
+                value: state.savedBrightness
+            ) {
+                print("BrightnessManager: Failed to restore external display at \(state.registryPath)")
             }
         }
         dimmedDDCServices.removeAll()
@@ -393,7 +498,10 @@ class BrightnessManager {
         for (display, method) in dimmedDisplays {
             switch method {
             case .displayServices(let saved):
-                setBrightness(displayID: display, level: saved)
+                guard setBrightness(displayID: display, level: saved) else {
+                    print("BrightnessManager: Failed to restore built-in display \(display)")
+                    continue
+                }
             case .gamma:
                 GammaManager.shared.restoreDisplay(displayID: display)
             }
@@ -405,6 +513,10 @@ class BrightnessManager {
         do {
             let data = try JSONEncoder().encode(state)
             try data.write(to: url, options: .atomic)
+            try FileManager.default.setAttributes(
+                [.posixPermissions: NSNumber(value: Int16(0o600))],
+                ofItemAtPath: url.path
+            )
             return true
         } catch {
             print("BrightnessManager: Failed to write recovery state: \(error)")
@@ -414,28 +526,48 @@ class BrightnessManager {
 
     func restoreFromRecoveryFile(_ url: URL) {
         do {
+            let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+            if let fileSize = attributes[.size] as? NSNumber,
+               fileSize.intValue > 1_048_576 {
+                print("BrightnessManager: Recovery file is unexpectedly large; refusing to read it")
+                return
+            }
+
             let data = try Data(contentsOf: url)
             let state = try JSONDecoder().decode(BlackoutRecoveryState.self, from: data)
 
-            let avServices = DDCManager.shared.getExternalAVServices()
+            var avServicesByPath: [String: CFTypeRef] = [:]
+            for descriptor in DDCManager.shared.getExternalAVServices() {
+                avServicesByPath[descriptor.registryPath] = descriptor.service
+            }
+
             for snapshot in state.ddcDisplays {
-                guard snapshot.index < avServices.count,
-                      let savedBrightness = snapshot.brightness else { continue }
-                _ = DDCManager.shared.setBrightness(
-                    service: avServices[snapshot.index],
-                    value: savedBrightness
-                )
+                guard let registryPath = snapshot.registryPath,
+                      !registryPath.isEmpty,
+                      let savedBrightness = snapshot.brightness,
+                      let service = avServicesByPath[registryPath] else {
+                    // This also safely skips legacy index-based entries. An
+                    // index is not a stable identity across process launches.
+                    continue
+                }
+                guard DDCManager.shared.setBrightness(service: service, value: savedBrightness) else {
+                    print("BrightnessManager: Failed to restore external display at \(registryPath)")
+                    continue
+                }
             }
 
             for snapshot in state.builtInDisplays {
-                setBrightness(
+                guard setBrightness(
                     displayID: CGDirectDisplayID(snapshot.displayID),
                     level: snapshot.brightness
-                )
+                ) else {
+                    print("BrightnessManager: Failed to restore built-in display \(snapshot.displayID)")
+                    continue
+                }
             }
 
             for snapshot in state.gammaDisplays {
-                GammaManager.shared.restore(snapshot: snapshot)
+                _ = GammaManager.shared.restore(snapshot: snapshot)
             }
             print("BrightnessManager: Restored displays from recovery state")
         } catch {
@@ -727,6 +859,8 @@ struct L10n {
     // MARK: - Notifications
     static var blackoutActivatedTitle: String { localized("Blackout Mode Activated", zh: "息屏模式已激活") }
     static var blackoutActivatedBody: String { localized("All screens dimmed while keeping the display connection. Shake mouse rapidly or press any key 3x to restore.", zh: "所有屏幕已调暗，但保持显示连接。快速摇动鼠标或连按 3 次任意键可恢复。") }
+    static var blackoutFailedTitle: String { localized("Blackout Mode Unavailable", zh: "息屏模式不可用") }
+    static var blackoutFailedBody: String { localized("No display could be dimmed safely; screen state was left unchanged.", zh: "没有显示器可以安全调暗；屏幕状态未改变。") }
     static var blackoutAutoRestoredTitle: String { localized("Blackout Mode Auto-Restored", zh: "息屏模式已自动恢复") }
     static var blackoutAutoRestoredBody: String { localized("Screens restored due to detected user input.", zh: "检测到用户输入，屏幕已恢复。") }
     static var blackoutDeactivatedTitle: String { localized("Blackout Mode Deactivated", zh: "息屏模式已关闭") }
@@ -940,6 +1074,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func applicationDidFinishLaunching(_ aNotification: Notification) {
+        guard ensureSingleInstance() else { return }
+
         requestNotificationPermission()
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -947,6 +1083,21 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         constructMenu()
         refreshWakeStatus()
+    }
+
+    private func ensureSingleInstance() -> Bool {
+        guard let bundleIdentifier = Bundle.main.bundleIdentifier else { return true }
+        let currentPID = ProcessInfo.processInfo.processIdentifier
+        guard let existing = NSRunningApplication.runningApplications(
+            withBundleIdentifier: bundleIdentifier
+        ).first(where: { $0.processIdentifier != currentPID }) else {
+            return true
+        }
+
+        existing.activate(options: [.activateIgnoringOtherApps])
+        print("KeepAwake: another instance is already running")
+        NSApplication.shared.terminate(nil)
+        return false
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -1134,7 +1285,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
 
         let recoveryFile = FileManager.default.temporaryDirectory
-            .appendingPathComponent("KeepAwake-blackout-\(ProcessInfo.processInfo.processIdentifier).json")
+            .appendingPathComponent("KeepAwake-blackout-\(UUID().uuidString).json")
         try? FileManager.default.removeItem(at: recoveryFile)
         blackoutRecoveryURL = recoveryFile
 
@@ -1144,6 +1295,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         guard BrightnessManager.shared.dimAllDisplays(recoveryFile: recoveryFile) else {
             stopBlackoutWatchdog()
+            showNotification(
+                title: L10n.blackoutFailedTitle,
+                body: L10n.blackoutFailedBody
+            )
             return
         }
 

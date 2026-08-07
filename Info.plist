@@ -8,6 +8,8 @@
     <string>com.khalil.keepawake</string>
     <key>CFBundleName</key>
     <string>KeepAwake</string>
+    <key>CFBundleDisplayName</key>
+    <string>KeepAwake</string>
     <key>CFBundleIconFile</key>
     <string>AppIcon.icns</string>
     <key>CFBundlePackageType</key>
@@ -17,6 +19,10 @@
     <key>CFBundleVersion</key>
     <string>120</string>
     <key>LSUIElement</key>
+    <true/>
+    <key>LSMinimumSystemVersion</key>
+    <string>13.0</string>
+    <key>LSMultipleInstancesProhibited</key>
     <true/>
     <key>NSHighResolutionCapable</key>
     <true/>

@@ -11,6 +11,18 @@ X86_64_BINARY="build_cache/${APP_NAME}-x86_64"
 
 echo "=== Building ${APP_NAME} macOS native app ==="
 
+for required_command in swiftc lipo codesign plutil; do
+    if ! command -v "$required_command" >/dev/null 2>&1; then
+        echo "Error: ${required_command} is required to build ${APP_NAME}.app."
+        exit 1
+    fi
+done
+
+if ! plutil -lint Info.plist >/dev/null; then
+    echo "Error: Info.plist is invalid."
+    exit 1
+fi
+
 # 1. Clean previous build
 if [ -d "$APP_DIR" ]; then
     echo "Cleaning previous build..."
@@ -34,7 +46,8 @@ if [ -f "AppIcon.icns" ]; then
     echo "Copying AppIcon.icns..."
     cp AppIcon.icns "${APP_DIR}/Contents/Resources/AppIcon.icns"
 else
-    echo "Warning: AppIcon.icns not found; the app will use the default icon."
+    echo "Error: AppIcon.icns not found."
+    exit 1
 fi
 
 # 4. Compile Swift code
@@ -49,14 +62,9 @@ if [ -f "main.swift" ]; then
         -module-cache-path "${MODULE_CACHE_DIR}/x86_64" \
         main.swift -framework IOKit -o "${X86_64_BINARY}"
 
-    if command -v lipo >/dev/null 2>&1; then
-        lipo -create "${ARM64_BINARY}" "${X86_64_BINARY}" \
-            -output "${APP_DIR}/Contents/MacOS/${APP_NAME}"
-        echo "Built universal arm64 + x86_64 binary."
-    else
-        echo "Warning: lipo not found; using arm64 binary only."
-        cp "${ARM64_BINARY}" "${APP_DIR}/Contents/MacOS/${APP_NAME}"
-    fi
+    lipo -create "${ARM64_BINARY}" "${X86_64_BINARY}" \
+        -output "${APP_DIR}/Contents/MacOS/${APP_NAME}"
+    echo "Built universal arm64 + x86_64 binary."
 else
     echo "Error: main.swift not found!"
     exit 1
@@ -70,19 +78,26 @@ if command -v xattr >/dev/null 2>&1; then
     xattr -cr "${APP_DIR}"
 fi
 
-if command -v codesign >/dev/null 2>&1; then
-    if [ -n "${CODESIGN_IDENTITY:-}" ]; then
-        codesign --force --deep --sign "${CODESIGN_IDENTITY}" "${APP_DIR}"
-    else
-        codesign --force --deep --sign - "${APP_DIR}"
-    fi
+if [ -n "${CODESIGN_IDENTITY:-}" ]; then
+    # Distribution builds use the hardened runtime and a trusted timestamp.
+    codesign --force --deep --options runtime --timestamp \
+        --sign "${CODESIGN_IDENTITY}" "${APP_DIR}"
+else
+    # Ad-hoc signing keeps source builds runnable without a local certificate.
+    codesign --force --deep --sign - "${APP_DIR}"
 fi
 
 # codesign may recreate Finder metadata on the outer .app directory. Remove it
 # after signing as well so a strict verification works on a local checkout.
 if command -v xattr >/dev/null 2>&1; then
     xattr -cr "${APP_DIR}"
+    # Finder/File Provider can reattach these outer-bundle attributes while
+    # codesign is finishing. Remove the known verification blockers explicitly.
+    xattr -d com.apple.FinderInfo "${APP_DIR}" 2>/dev/null || true
+    xattr -d 'com.apple.fileprovider.fpfs#P' "${APP_DIR}" 2>/dev/null || true
 fi
+
+codesign --verify --deep --strict "${APP_DIR}"
 
 echo "=== Build Successful! ==="
 echo "Application built at: $(pwd)/${APP_DIR}"

@@ -1,0 +1,29 @@
+name: Build macOS app
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Validate scripts and metadata
+        run: |
+          bash -n build.sh
+          plutil -lint Info.plist
+          git diff --check
+
+      - name: Build universal app
+        run: ./build.sh
+
+      - name: Verify bundle
+        run: |
+          lipo -info KeepAwake.app/Contents/MacOS/KeepAwake
+          codesign --verify --deep --strict KeepAwake.app

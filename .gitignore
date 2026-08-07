@@ -1,3 +1,11 @@
 .DS_Store
 KeepAwake.app
 build_cache/
+.build/
+.swiftpm/
+*.xcuserstate
+*.dSYM/
+.gstack/
+.env
+.env.*
+!.env.example
