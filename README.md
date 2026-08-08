@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="AppIcon.png" alt="KeepAwake Icon" width="128">
+  <img src="assets/AppIcon.png" alt="KeepAwake Icon" width="128">
 </p>
 
 <h1 align="center">KeepAwake</h1>
@@ -16,7 +16,7 @@
 KeepAwake is a native macOS menu bar utility. When enabled, it uses the system `caffeinate` command to prevent idle system and display sleep, with timed keep-awake options and Blackout Mode. It does not bypass manual locking, lid-closure behavior, or authentication.
 
 <p align="center">
-  <img src="menu-bar-native.png" alt="KeepAwake Menu Bar Preview" width="100%">
+  <img src="assets/menu-bar-native.png" alt="KeepAwake Menu Bar Preview" width="100%">
 </p>
 
 Blackout Mode normally reduces built-in and external display brightness to 0 instead of sending a display power-off command. This is intended to keep displays in the system graphics topology for background screenshots or automation, but behavior still depends on the actual display, connection path, and macOS version.
@@ -85,10 +85,10 @@ When `CODESIGN_IDENTITY` is set, the script enables the hardened runtime and a t
 - `main.swift`: AppKit menu bar UI, `caffeinate` lifecycle, power-state reading, display control, input auto-restore, and watchdog.
 - `Info.plist`: menu bar agent settings, minimum OS, single-instance policy, version, and icon declaration.
 - `build.sh`: universal binary, app bundle, icon, and signing build script.
-- `AppIcon.png` / `AppIcon.icns`: project application icon; see [`ASSET_PROVENANCE.md`](ASSET_PROVENANCE.md) for its provenance record.
-- `SECURITY.md`: security-reporting guidance.
-- `CONTRIBUTING.md`: build, verification, and contribution conventions.
-- `CHANGELOG.md`: version history.
+- `assets/AppIcon.png` / `assets/AppIcon.icns`: project application icon; see [`docs/ASSET_PROVENANCE.md`](docs/ASSET_PROVENANCE.md) for its provenance record.
+- `docs/SECURITY.md`: security-reporting guidance.
+- `docs/CONTRIBUTING.md`: build, verification, and contribution conventions.
+- `docs/CHANGELOG.md`: version history.
 - `.github/workflows/build.yml`: macOS build and bundle verification.
 
 ## Version
@@ -104,7 +104,7 @@ This project is released under the [MIT License](LICENSE).
 ---
 
 <p align="center">
-  <img src="AppIcon.png" alt="KeepAwake Icon" width="128">
+  <img src="assets/AppIcon.png" alt="KeepAwake Icon" width="128">
 </p>
 
 <h1 align="center">KeepAwake (中文)</h1>
@@ -122,7 +122,7 @@ This project is released under the [MIT License](LICENSE).
 KeepAwake 是一个原生 macOS 菜单栏工具。开启后，它使用系统 `caffeinate` 保持 Mac 和显示器不因空闲而休眠，并提供定时保持唤醒与 Blackout Mode（息屏模式）。它不会绕过手动锁屏、合盖或身份验证。
 
 <p align="center">
-  <img src="menu-bar-native.png" alt="KeepAwake 菜单栏预览" width="100%">
+  <img src="assets/menu-bar-native.png" alt="KeepAwake 菜单栏预览" width="100%">
 </p>
 
 Blackout Mode 的默认策略是把内置屏幕和外接屏亮度降到 0，而不是发送显示器断电命令。这样可以尽量保持显示器仍在系统图形拓扑中，适合需要后台截图或自动化代理的场景；不同显示器、连接方式和 macOS 版本仍需在真实硬件上验证。
@@ -191,10 +191,10 @@ CODESIGN_IDENTITY="Developer ID Application: Your Name" ./build.sh
 - `main.swift`：AppKit 菜单栏 UI、`caffeinate` 生命周期、电源状态读取、显示器控制、输入自动恢复和 watchdog。
 - `Info.plist`：菜单栏 Agent、最低系统版本、单实例、版本号和图标声明。
 - `build.sh`：universal binary、App bundle、图标复制和签名构建脚本。
-- `AppIcon.png` / `AppIcon.icns`：项目应用图标；来源记录见 [`ASSET_PROVENANCE.md`](ASSET_PROVENANCE.md)。
-- `SECURITY.md`：安全问题报告方式。
-- `CONTRIBUTING.md`：构建、验证和贡献约定。
-- `CHANGELOG.md`：版本变更记录。
+- `assets/AppIcon.png` / `assets/AppIcon.icns`：项目应用图标；来源记录见 [`docs/ASSET_PROVENANCE.md`](docs/ASSET_PROVENANCE.md)。
+- `docs/SECURITY.md`：安全问题报告方式。
+- `docs/CONTRIBUTING.md`：构建、验证和贡献约定。
+- `docs/CHANGELOG.md`：版本变更记录。
 - `.github/workflows/build.yml`：macOS 构建和 bundle 验证。
 
 ## 版本
