@@ -296,9 +296,15 @@ function initBlackoutOverlayDemo() {
   let keyCount = 0;
   let keyTimer = null;
 
+  let startX = null;
+  let startY = null;
+  const WAKE_DISTANCE_PX = 50;
+
   function openDemo() {
     demoOverlay.classList.add('active');
     keyCount = 0;
+    startX = null;
+    startY = null;
     
     window.addEventListener('mousemove', handleMouseMoveExit);
     window.addEventListener('keydown', handleKeyPressExit);
@@ -312,11 +318,18 @@ function initBlackoutOverlayDemo() {
     keyCount = 0;
   }
 
-  let mouseMoveCounter = 0;
-  function handleMouseMoveExit() {
-    mouseMoveCounter++;
-    if (mouseMoveCounter > 15) {
-      mouseMoveCounter = 0;
+  function handleMouseMoveExit(e) {
+    if (startX === null || startY === null) {
+      startX = e.clientX;
+      startY = e.clientY;
+      return;
+    }
+
+    const diffX = e.clientX - startX;
+    const diffY = e.clientY - startY;
+    const distance = Math.sqrt(diffX * diffX + diffY * diffY);
+
+    if (distance > WAKE_DISTANCE_PX) {
       closeDemo();
     }
   }
