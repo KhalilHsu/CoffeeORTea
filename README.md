@@ -1,5 +1,18 @@
-# KeepAwake
+<p align="center">
+  <img src="AppIcon.png" alt="KeepAwake Icon" width="128">
+</p>
 
+<h1 align="center">KeepAwake</h1>
+
+<p align="center">
+  <strong>A native macOS menu bar utility that prevents system sleep while an Agent or background task is working.</strong>
+</p>
+
+<div align="center">
+  <a href="https://KhalilHsu.github.io/CoffeeORTea/">🌐 Visit Website</a>
+</div>
+
+<br/>
 KeepAwake is a native macOS menu bar utility. When enabled, it uses the system `caffeinate` command to prevent idle system and display sleep, with timed keep-awake options and Blackout Mode. It does not bypass manual locking, lid-closure behavior, or authentication.
 
 Blackout Mode normally reduces built-in and external display brightness to 0 instead of sending a display power-off command. This is intended to keep displays in the system graphics topology for background screenshots or automation, but behavior still depends on the actual display, connection path, and macOS version.
@@ -84,7 +97,23 @@ This project is released under the [MIT License](LICENSE).
 
 ---
 
-# 中文
+---
+
+<p align="center">
+  <img src="AppIcon.png" alt="KeepAwake Icon" width="128">
+</p>
+
+<h1 align="center">KeepAwake (中文)</h1>
+
+<p align="center">
+  <strong>一款原生 macOS 菜单栏工具，让 Mac 在跑自动化 Agent 或后台任务时保持唤醒、不休眠。</strong>
+</p>
+
+<div align="center">
+  <a href="https://KhalilHsu.github.io/CoffeeORTea/">🌐 访问官网介绍页</a>
+</div>
+
+<br/>
 
 KeepAwake 是一个原生 macOS 菜单栏工具。开启后，它使用系统 `caffeinate` 保持 Mac 和显示器不因空闲而休眠，并提供定时保持唤醒与 Blackout Mode（息屏模式）。它不会绕过手动锁屏、合盖或身份验证。
 
