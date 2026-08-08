@@ -1,0 +1,588 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>KeepAwake (CoffeeORTea ☕️) - Native macOS Menu Bar Tool for Keep Awake & Blackout Mode</title>
+  <meta name="description" content="KeepAwake 是一个原生的 macOS 菜单栏防休眠工具。支持灵活定时保持唤醒、DDC/CI 外接屏 Blackout 熄屏保帧，专为后台任务与 Computer Use AI 场景设计。">
+  <meta name="keywords" content="KeepAwake, CoffeeORTea, macOS, caffeinate, Blackout Mode, DDC/CI, Display Control, Computer Use, Swift">
+  
+  <!-- Open Graph -->
+  <meta property="og:title" content="KeepAwake (CoffeeORTea ☕️) - macOS Menu Bar Tool">
+  <meta property="og:description" content="Native macOS menu bar app for preventing sleep & Blackout display dimming for background AI agent workloads.">
+  <meta property="og:image" content="assets/app-icon.png">
+  <meta property="og:type" content="website">
+
+  <link rel="icon" type="image/png" href="assets/app-icon.png">
+  <link rel="stylesheet" href="style.css?v=7.0.0">
+</head>
+<body>
+
+  <!-- Ambient Glow Background Effects -->
+  <div class="ambient-glow glow-1"></div>
+  <div class="ambient-glow glow-2"></div>
+
+  <!-- Navigation Bar -->
+  <header class="navbar">
+    <div class="nav-container">
+      <a href="#" class="nav-brand">
+        <img src="assets/app-icon.png" alt="KeepAwake Logo" class="nav-logo">
+        <span class="nav-title">KeepAwake <span class="nav-badge">v1.2.0</span></span>
+      </a>
+
+      <div class="nav-actions">
+        <button class="lang-switch-btn" id="langToggleBtn" title="Switch Language / 切换语言">
+          <span class="lang-text">EN</span>
+        </button>
+        <a href="https://github.com/KhalilHsu/CoffeeORTea" target="_blank" rel="noopener noreferrer" class="btn btn-secondary nav-github-btn">
+          <svg class="icon-github" viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+            <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/>
+          </svg>
+          <span>GitHub</span>
+        </a>
+      </div>
+    </div>
+  </header>
+
+  <!-- Hero Section -->
+  <section class="hero-section">
+    <div class="hero-container">
+      <div class="hero-content">
+        <div class="pill-tag">
+          <span class="pill-dot"></span>
+          <span data-zh="原生 Swift AppKit • 轻量无依赖 • MIT 授权" data-en="Native Swift AppKit • Lightweight • MIT License">原生 Swift AppKit • 轻量无依赖 • MIT 授权</span>
+        </div>
+        
+        <h1 class="hero-title">
+          <span class="gradient-text" data-zh="Mac 优雅防休眠" data-en="Keep Mac Awake Elegantly">Mac 优雅防休眠</span><br>
+          <span data-zh="与 Blackout 熄屏保帧" data-en="With Blackout Display Mode">与 Blackout 熄屏保帧</span>
+        </h1>
+        
+        <p class="hero-subtitle" data-zh="KeepAwake (CoffeeORTea) 是一个原生 macOS 菜单栏工具。基于系统 caffeinate 唤醒断言，提供灵活动态定时器与独创的 Blackout 模式，为后台任务、远程控制与 Computer Use AI 场景保驾护航。" data-en="KeepAwake (CoffeeORTea) is a native macOS menu bar utility. Powered by system caffeinate assertions, flexible timer presets, and an innovative Blackout mode built for background rendering and Computer Use AI workflows.">
+          KeepAwake (CoffeeORTea) 是一个原生 macOS 菜单栏工具。基于系统 caffeinate 唤醒断言，提供灵活动态定时器与独创的 Blackout 模式，为后台任务、远程控制与 Computer Use AI 场景保驾护航。
+        </p>
+
+        <div class="hero-btns">
+          <a href="#quickstart" class="btn btn-primary btn-large">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M4 17l6 6 10-10M12 3v12"/>
+            </svg>
+            <span data-zh="快速构建安装" data-en="Quick Build & Run">快速构建安装</span>
+          </a>
+          <a href="#blackout" class="btn btn-glass btn-large">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"/>
+              <line x1="12" y1="8" x2="12" y2="12"/>
+              <line x1="12" y1="16" x2="12.01" y2="16"/>
+            </svg>
+            <span data-zh="探索 Blackout 模式" data-en="Discover Blackout">探索 Blackout 模式</span>
+          </a>
+        </div>
+
+        <div class="hero-stats">
+          <div class="stat-item">
+            <span class="stat-value">macOS 13+</span>
+            <span class="stat-label" data-zh="最低系统要求" data-en="System Required">最低系统要求</span>
+          </div>
+          <div class="stat-divider"></div>
+          <div class="stat-item">
+            <span class="stat-value">0 Dep</span>
+            <span class="stat-label" data-zh="零第三方依赖" data-en="Zero Dependencies">零第三方依赖</span>
+          </div>
+          <div class="stat-divider"></div>
+          <div class="stat-item">
+            <span class="stat-value">Universal</span>
+            <span class="stat-label" data-zh="Apple Silicon + Intel" data-en="Apple Silicon & Intel">Apple Silicon + Intel</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Interactive Menu Bar Simulator Container -->
+      <div class="hero-visual">
+        <div class="mac-mockup">
+          <div class="mac-header">
+            <div class="mac-window-dots">
+              <span class="dot dot-red"></span>
+              <span class="dot dot-yellow"></span>
+              <span class="dot dot-green"></span>
+            </div>
+            <div class="mac-title-bar" data-zh="macOS 菜单栏交互模拟体验" data-en="macOS Menu Bar Live Interactive Demo">
+              macOS 菜单栏交互模拟体验
+            </div>
+            <div class="mac-status-clock" id="liveClock">22:24</div>
+          </div>
+
+          <!-- Simulated macOS Top Menu Bar -->
+          <div class="simulated-menubar">
+            <div class="menubar-left">
+              <span class="apple-logo"></span>
+              <span class="app-name">Finder</span>
+              <span class="menu-item-text">File</span>
+              <span class="menu-item-text">Edit</span>
+              <span class="menu-item-text">View</span>
+            </div>
+            <div class="menubar-right">
+              <span class="status-icon">📶</span>
+              <span class="status-icon">🔋</span>
+              
+              <!-- KeepAwake Interactive Icon -->
+              <div class="keepawake-menu-trigger active" id="menuTrigger" title="点击展开 KeepAwake 菜单">
+                <span class="status-emoji" id="simEmoji">☕️</span>
+                <span class="status-timer-badge" id="simBadge">1h</span>
+              </div>
+            </div>
+
+            <!-- Simulated macOS Native NSMenu Dropdown -->
+            <div class="simulated-dropdown active" id="simDropdown">
+              <!-- Top Native Toggle Switch Box -->
+              <div class="toggle-header-box">
+                <div class="toggle-switch-row">
+                  <span class="toggle-label sleep-label active" id="simSleepLabel" data-zh="💤 睡眠" data-en="💤 Sleep">💤 睡眠</span>
+                  <div class="mac-native-switch pulse-attention" id="simMainSwitch" role="switch" aria-checked="false" title="点击切换防休眠状态">
+                    <div class="switch-handle"></div>
+                  </div>
+                  <span class="toggle-label coffee-label" id="simCoffeeLabel" data-zh="☕️ 咖啡" data-en="☕️ Coffee">☕️ 咖啡</span>
+                </div>
+                <div class="toggle-status-text" id="simStatusText" data-zh="按系统设置休眠" data-en="Normal system sleep">按系统设置休眠</div>
+
+                <!-- Click Hint Banner Positioned BELOW Switch for Zero Layout Shift -->
+                <div class="switch-click-hint-banner" id="switchClickHint">
+                  <span class="hint-hand">👆</span>
+                  <span class="hint-text" data-zh="点击开关体验防休眠切换" data-en="Click Switch to Try">点击开关体验防休眠切换</span>
+                  <span class="hint-beacon"></span>
+                </div>
+              </div>
+
+              <div class="menu-divider"></div>
+
+              <!-- Duration Submenu Trigger -->
+              <div class="nsmenu-item has-submenu" id="simDurationMenuItem">
+                <span class="menu-item-check"></span>
+                <span class="menu-item-text" id="simDurationTitle" data-zh="设置时长  1 小时" data-en="Set Duration  1 Hour">设置时长  1 小时</span>
+                <span class="submenu-arrow">◂</span>
+
+                <!-- Duration Submenu Popup -->
+                <div class="ns-submenu" id="simDurationSubmenu">
+                  <div class="submenu-item" data-duration="indefinitely">
+                    <span class="sub-check"></span>
+                    <span data-zh="保持电脑唤醒" data-en="Keep computer awake">保持电脑唤醒</span>
+                  </div>
+                  <div class="submenu-item" data-duration="15m">
+                    <span class="sub-check"></span>
+                    <span data-zh="15 分钟" data-en="15 Minutes">15 分钟</span>
+                  </div>
+                  <div class="submenu-item active" data-duration="1h">
+                    <span class="sub-check">✓</span>
+                    <span data-zh="1 小时" data-en="1 Hour">1 小时</span>
+                  </div>
+                  <div class="submenu-item" data-duration="3h">
+                    <span class="sub-check"></span>
+                    <span data-zh="3 小时" data-en="3 Hours">3 小时</span>
+                  </div>
+                  <div class="submenu-item" data-duration="8am">
+                    <span class="sub-check"></span>
+                    <span data-zh="直到早上 08:00" data-en="Until 8:00 AM">直到早上 08:00</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Blackout Mode Toggle Item (Disabled when Sleep active) -->
+              <div class="nsmenu-item disabled" id="simBlackoutMenuItem">
+                <span class="menu-item-check" id="simBlackoutCheck"></span>
+                <span class="menu-item-text" data-zh="息屏模式（省电）" data-en="Blackout Mode (Energy Saving)">息屏模式（省电）</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Mockup Desktop Screen -->
+          <div class="mac-screen-body" id="macScreenBody">
+            <div class="screen-content-wrapper">
+              <div class="screen-widget">
+                <div class="widget-icon">☕️</div>
+                <div class="widget-info">
+                  <h4 id="screenWidgetTitle" data-zh="KeepAwake 已激活" data-en="KeepAwake Active">KeepAwake 已激活</h4>
+                  <p id="screenWidgetDesc" data-zh="当前防休眠模式：1 小时 (caffeinate 活跃)" data-en="Mode: 1 Hour (caffeinate assertion live)">当前防休眠模式：1 小时 (caffeinate 活跃)</p>
+                </div>
+              </div>
+              
+              <div class="blackout-overlay-banner" id="blackoutOverlayBanner">
+                <div class="banner-pulse"></div>
+                <div class="banner-text">
+                  <strong data-zh="BLACKOUT 模式运行中" data-en="BLACKOUT MODE ACTIVE">BLACKOUT 模式运行中</strong>
+                  <span data-zh="屏幕亮度降至 0% | 图形拓扑维持活跃 (截图可用)" data-en="Brightness 0% | GPU Topology Preserved (Screenshots work)">屏幕亮度降至 0% | 图形拓扑维持活跃 (截图可用)</span>
+                </div>
+                <div class="banner-tip" data-zh="💡 快速移动鼠标或连续按键 3 次即可唤醒屏幕" data-en="💡 Shake mouse or keypress 3x to wake screen">💡 快速移动鼠标或连续按键 3 次即可唤醒屏幕</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Interactive Blackout Feature Spotlight -->
+  <section class="section blackout-spotlight-section" id="blackout">
+    <div class="container">
+      <div class="section-header">
+
+        <h2 class="section-title" data-zh="为什么需要 Blackout Mode？" data-en="Why Blackout Mode Matters?">为什么需要 Blackout Mode？</h2>
+        <p class="section-desc" data-zh="传统的熄屏和电源休眠会导致 macOS 清除显示器图形拓扑结构，造成后台截图、AI Computer Use 代理或远程桌面无法正常工作。Blackout Mode 完美解决了这一难题。" data-en="Traditional sleep cuts off graphics display topology, causing background screenshot tasks and AI Computer Use agents to fail. Blackout Mode solves this seamlessly.">
+          传统的熄屏和电源休眠会导致 macOS 清除显示器图形拓扑结构，造成后台截图、AI Computer Use 代理或远程桌面无法正常工作。Blackout Mode 完美解决了这一难题。
+        </p>
+      </div>
+
+      <div class="comparison-grid">
+        <!-- Card 1: Traditional Sleep -->
+        <div class="comparison-card card-negative">
+          <div class="card-badge badge-red" data-zh="传统熄屏 / 休眠" data-en="Traditional Display Sleep">传统熄屏 / 休眠</div>
+          <div class="comparison-illustration sleep-mode">
+            <div class="screen-mockoff">
+              <span class="off-icon">❌</span>
+              <span class="off-text" data-zh="无信号 / 拓扑断开" data-en="No Signal / Topology Severed">无信号 / 拓扑断开</span>
+            </div>
+          </div>
+          <ul class="comparison-list">
+            <li class="negative"><span class="list-icon">✕</span> <span data-zh="系统发送屏保/显示器关机命令，断开 DDC 连接" data-en="System cuts display power and breaks DDC connection">系统发送屏保/显示器关机命令，断开 DDC 连接</span></li>
+            <li class="negative"><span class="list-icon">✕</span> <span data-zh="后台截图捕获到黑色全空帧或引发系统渲染异常" data-en="Background screen captures fail or produce empty black frames">后台截图捕获到黑色全空帧或引发系统渲染异常</span></li>
+            <li class="negative"><span class="list-icon">✕</span> <span data-zh="Computer Use AI 代理由于无法读取 UI 元素而中断" data-en="AI agents like Computer Use stall due to missing display context">Computer Use AI 代理由于无法读取 UI 元素而中断</span></li>
+          </ul>
+        </div>
+
+        <!-- Card 2: Blackout Mode -->
+        <div class="comparison-card card-positive glow-border">
+          <div class="card-badge badge-green" data-zh="KeepAwake Blackout 模式" data-en="KeepAwake Blackout Mode">KeepAwake Blackout Mode</div>
+          <div class="comparison-illustration blackout-mode">
+            <div class="screen-mockon">
+              <span class="on-icon">⚡️</span>
+              <span class="on-text" data-zh="物理暗黑 / GPU 视窗完整" data-en="0 Brightness / Full GPU Context">物理暗黑 / GPU 视窗完整</span>
+              <div class="topo-pulse" data-zh="图形拓扑在线 100%" data-en="GPU Topology Active 100%">图形拓扑在线 100%</div>
+            </div>
+          </div>
+          <ul class="comparison-list">
+            <li class="positive"><span class="list-icon">✓</span> <span data-zh="内置屏采用 DisplayServices，外接屏优先使用 DDC/CI 降亮" data-en="Uses DisplayServices & DDC/CI to set hardware brightness to 0">内置屏采用 DisplayServices，外接屏优先使用 DDC/CI 降亮</span></li>
+            <li class="positive"><span class="list-icon">✓</span> <span data-zh="保持 Mac 在系统的图形拓扑中，后台渲染与截图持续可用" data-en="Preserves complete screen frame buffer; background screenshots work">保持 Mac 在系统的图形拓扑中，后台渲染与截图持续可用</span></li>
+            <li class="positive"><span class="list-icon">✓</span> <span data-zh="无需物理遮挡屏幕，节能护眼，完美契合 AI 挂机与自动化测试" data-en="Energy-efficient blackout without physical screen cover, perfect for AI agents">无需物理遮挡屏幕，节能护眼，完美契合 AI 挂机与自动化测试</span></li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- Blackout Interactive Simulator Widget -->
+      <div class="blackout-demo-card">
+        <div class="demo-info">
+          <h3 data-zh="体验屏幕唤醒防护与快速恢复机制" data-en="Interactive Blackout Safety Simulation">体验屏幕唤醒防护与快速恢复机制</h3>
+          <p data-zh="KeepAwake 挂载了独立 Watchdog 守护进程。支持通过鼠标晃动或连续按键 3 次迅速解锁回复原亮度。" data-en="Backed by an independent Watchdog process. Restore screen brightness instantly by moving the mouse or tapping 3 keys within 2 seconds.">
+            KeepAwake 挂载了独立 Watchdog 守护进程。支持通过鼠标晃动或连续按键 3 次迅速解锁回复原亮度。
+          </p>
+        </div>
+        <div class="demo-action">
+          <button class="btn btn-amber" id="triggerBlackoutDemoBtn">
+            <span data-zh="点击测试模拟 Blackout 熄屏" data-en="Simulate Blackout Dimming">点击测试模拟 Blackout 熄屏</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Features Grid Section -->
+  <section class="section" id="features">
+    <div class="container">
+      <div class="section-header">
+
+        <h2 class="section-title" data-zh="轻量强悍，专为 macOS 打造" data-en="Lightweight & Robust for macOS">轻量强悍，专为 macOS 打造</h2>
+        <p class="section-desc" data-zh="抛弃臃肿的前端框架与复杂的配置，用原生 AppKit 呈现极简高效的体验。" data-en="Ditch heavy electron frameworks. Built with native AppKit for ultra-low resource footprint.">
+          抛弃臃肿的前端框架与复杂的配置，用原生 AppKit 呈现极简高效的体验。
+        </p>
+      </div>
+
+      <div class="features-grid">
+        <!-- Feature 1 -->
+        <div class="feature-card">
+          <div class="feature-icon-wrapper">
+            <span class="feature-emoji">⚡️</span>
+          </div>
+          <h3 class="feature-title" data-zh="系统级 Caffeinate 绑置" data-en="System Caffeinate Assertions">系统级 Caffeinate 绑置</h3>
+          <p class="feature-text" data-zh="直接通过系统 caffeinate -w PID 断言防休眠，KeepAwake 退出后断言自动安全释放，绝不会遗留孤儿子进程。" data-en="Binds caffeinate -w PID directly. When KeepAwake closes, system sleep assertions are cleanly released automatically.">
+            直接通过系统 caffeinate -w PID 断言防休眠，KeepAwake 退出后断言自动安全释放，绝不会遗留孤儿子进程。
+          </p>
+        </div>
+
+        <!-- Feature 2 -->
+        <div class="feature-card">
+          <div class="feature-icon-wrapper">
+            <span class="feature-emoji">⏱️</span>
+          </div>
+          <h3 class="feature-title" data-zh="灵活预设定时器" data-en="Flexible Timer Presets">灵活预设定时器</h3>
+          <p class="feature-text" data-zh="提供 15 分钟、1 小时、3 小时、直到早上 8:00 以及永久保持唤醒等多种快捷时长，菜单栏直观倒计时展示。" data-en="Presets for 15m, 1h, 3h, until 8:00 AM, or permanent stay-awake with live countdown displays in your menu bar.">
+            提供 15 分钟、1 小时、3 小时、直到早上 8:00 以及永久保持唤醒等多种快捷时长，菜单栏直观倒计时展示。
+          </p>
+        </div>
+
+        <!-- Feature 3 -->
+        <div class="feature-card">
+          <div class="feature-icon-wrapper">
+            <span class="feature-emoji">🖥️</span>
+          </div>
+          <h3 class="feature-title" data-zh="多显示器 DDC/CI 控制" data-en="Multi-Monitor DDC/CI">多显示器 DDC/CI 控制</h3>
+          <p class="feature-text" data-zh="内置屏采用 DisplayServices，外接显示器优先使用 DDC/CI VCP 指令调亮降至 0，不支持时自动 Gamma 降级。" data-en="Uses DisplayServices for built-in displays and DDC/CI commands for external monitors with graceful Gamma fallbacks.">
+            内置屏采用 DisplayServices，外接显示器优先使用 DDC/CI VCP 指令调亮降至 0，不支持时自动 Gamma 降级。
+          </p>
+        </div>
+
+        <!-- Feature 4 -->
+        <div class="feature-card">
+          <div class="feature-icon-wrapper">
+            <span class="feature-emoji">🛡️</span>
+          </div>
+          <h3 class="feature-title" data-zh="Watchdog 守护与恢复" data-en="Independent Watchdog Safety">Watchdog 守护与恢复</h3>
+          <p class="feature-text" data-zh="Blackout 写入临时恢复文件并启动独立 Watchdog；即使主进程异常崩溃退出，守护进程也会安全将亮度复原。" data-en="Writes state to temporary recovery files and spawns an independent watchdog to restore screen brightness if app crashes.">
+            Blackout 写入临时恢复文件并启动独立 Watchdog；即使主进程异常崩溃退出，守护进程也会安全将亮度复原。
+          </p>
+        </div>
+
+        <!-- Feature 5 -->
+        <div class="feature-card">
+          <div class="feature-icon-wrapper">
+            <span class="feature-emoji">🌐</span>
+          </div>
+          <h3 class="feature-title" data-zh="原生双语自动跟随" data-en="Native Bilingual Localization">原生双语自动跟随</h3>
+          <p class="feature-text" data-zh="无缝适配中英双语菜单与系统通知。自动跟随 macOS 系统首选语言设定，符合 Mac 审美标准。" data-en="Seamless English and Chinese menus and notifications, automatically matching macOS system locale preferences.">
+            无缝适配中英双语菜单与系统通知。自动跟随 macOS 系统首选语言设定，符合 Mac 审美标准。
+          </p>
+        </div>
+
+        <!-- Feature 6 -->
+        <div class="feature-card">
+          <div class="feature-icon-wrapper">
+            <span class="feature-emoji">🍏</span>
+          </div>
+          <h3 class="feature-title" data-zh="Universal 通用架构" data-en="Universal Binary Architecture">Universal 通用架构</h3>
+          <p class="feature-text" data-zh="纯 Swift 单文件直接编译，原生支持 Apple Silicon (M1/M2/M3/M4) 与 Intel 芯片 Mac，零运行库负担。" data-en="Compiled directly from a clean Swift main source into a universal binary for Apple Silicon & Intel processors.">
+            纯 Swift 单文件直接编译，原生支持 Apple Silicon (M1/M2/M3/M4) 与 Intel 芯片 Mac，零运行库负担。
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Security & Architecture Section -->
+  <section class="section security-section" id="architecture">
+    <div class="container">
+      <div class="section-header">
+
+        <h2 class="section-title" data-zh="明确的安全边界与规范" data-en="Clear Security Boundaries & Guarantees">明确的安全边界与规范</h2>
+      </div>
+
+      <div class="security-cards-grid">
+        <div class="security-card">
+          <div class="security-icon">🔒</div>
+          <h4 data-zh="锁屏与密码保护" data-en="Lock Screen & Security">锁屏与密码保护</h4>
+          <p data-zh="KeepAwake 仅响应防空闲休眠断言，不修改系统的屏保、密码解锁或合盖认证策略。不会绕过 macOS 的身份验证机制。" data-en="Does not tamper with screen saver timer settings or bypass user password authentication and lid lock behavior.">
+            KeepAwake 仅响应防空闲休眠断言，不修改系统的屏保、密码解锁或合盖认证策略。不会绕过 macOS 的身份验证机制。
+          </p>
+        </div>
+
+        <div class="security-card">
+          <div class="security-icon">🧩</div>
+          <h4 data-zh="断言只针对自身" data-en="Isolated Scope">断言只针对自身</h4>
+          <p data-zh="KeepAwake 只管理自身启动的 caffeinate 进程。关闭状态或退出时不会强行杀死其他开发工具或下载器启动的防休眠断言。" data-en="Only manages caffeinate processes created by KeepAwake itself. Leaves third-party caffeinate tasks untouched.">
+            KeepAwake 只管理自身启动的 caffeinate 进程。关闭状态或退出时不会强行杀死其他开发工具或下载器启动的防休眠断言。
+          </p>
+        </div>
+
+        <div class="security-card">
+          <div class="security-icon">⚙️</div>
+          <h4 data-zh="私有 API 与打包说明" data-en="Private APIs & Signatures">私有 API 与打包说明</h4>
+          <p data-zh="项目使用了 DisplayServices 与 Apple Silicon IOAVService DDC 接口，适合开源编译及自签名。公开发布时使用 Developer ID 即可。" data-en="Utilizes DisplayServices and Apple Silicon IOAVService DDC calls. Built with ad-hoc signing for easy local running.">
+            项目使用了 DisplayServices 与 Apple Silicon IOAVService DDC 接口，适合开源编译及自签名。公开发布时使用 Developer ID 即可。
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Quick Start & Build Section -->
+  <section class="section quickstart-section" id="quickstart">
+    <div class="container">
+      <div class="section-header">
+
+        <h2 class="section-title" data-zh="一键 Clone 与本地构建" data-en="Clone &amp; Build in Seconds">一键 Clone 与本地构建</h2>
+        <p class="section-desc" data-zh="无须安装 Xcode，仅需命令行 Swift 即可完成 Universal App 编译与运行。" data-en="No bulky Xcode installation needed. Just native Swift command-line tools to build the app package.">
+          无须安装 Xcode，仅需命令行 Swift 即可完成 Universal App 编译与运行。
+        </p>
+      </div>
+
+      <!-- Segmented Tab Switcher: For Human vs For Agent -->
+      <div class="mode-tab-bar">
+        <button class="mode-tab-btn active" id="tabForHuman" data-mode="human">
+          <span class="tab-icon">👤</span>
+          <span data-zh="For Human (开发者指南)" data-en="For Human (Developer Step-by-Step)">For Human (开发者指南)</span>
+        </button>
+        <button class="mode-tab-btn" id="tabForAgent" data-mode="agent">
+          <span class="tab-icon">🤖</span>
+          <span data-zh="For Agent (AI 自动化指令)" data-en="For Agent (AI One-Liner)">For Agent (AI 自动化指令)</span>
+          <span class="agent-sparkle-badge">AI</span>
+        </button>
+      </div>
+
+      <!-- Terminal Panel: For Human -->
+      <div class="code-terminal-box mode-panel active" id="panelForHuman">
+        <div class="terminal-header">
+          <div class="terminal-dots">
+            <span></span><span></span><span></span>
+          </div>
+          <div class="terminal-title">zsh — Terminal</div>
+          <button class="one-click-copy-btn copy-btn-trigger" data-copy="git clone https://github.com/KhalilHsu/CoffeeORTea.git &amp;&amp; cd CoffeeORTea &amp;&amp; ./build.sh &amp;&amp; open KeepAwake.app">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+            <span data-zh="复制命令，粘贴到终端运行" data-en="Copy Commands for Terminal">复制命令，粘贴到终端运行</span>
+          </button>
+        </div>
+        <div class="terminal-body">
+          <div class="code-line"><span class="prompt">$</span><span class="command-text">git clone https://github.com/KhalilHsu/CoffeeORTea.git</span></div>
+          <div class="code-line"><span class="prompt">$</span><span class="command-text">cd CoffeeORTea</span></div>
+          <div class="code-line"><span class="prompt">$</span><span class="command-text">./build.sh</span></div>
+          <div class="code-line"><span class="prompt">$</span><span class="command-text">open KeepAwake.app</span></div>
+        </div>
+      </div>
+
+      <!-- Terminal Panel: For Agent -->
+      <div class="code-terminal-box mode-panel" id="panelForAgent">
+        <div class="terminal-header">
+          <div class="terminal-dots">
+            <span></span><span></span><span></span>
+          </div>
+          <div class="terminal-title">AI Agent Prompt</div>
+          <button class="one-click-copy-btn copy-btn-trigger agent-accent-btn" data-copy="&quot;Please clone https://github.com/KhalilHsu/CoffeeORTea.git, execute ./build.sh, and launch KeepAwake.app.&quot;">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+            <span data-zh="一键复制 Agent 提示词" data-en="Copy Agent Prompt">一键复制 Agent 提示词</span>
+          </button>
+        </div>
+        <div class="terminal-body">
+          <div class="agent-command-box">
+            <div class="agent-label" data-zh="🤖 Agent 提示词 (Direct Prompt for Antigravity / Claude Agent):" data-en="🤖 Direct Prompt for AI Agent:">🤖 Agent 提示词 (Direct Prompt for Antigravity / Claude Agent):</div>
+            <div class="agent-code-line">
+              <code class="agent-prompt-text">"Please clone https://github.com/KhalilHsu/CoffeeORTea.git, execute ./build.sh, and launch KeepAwake.app."</code>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- FAQ Section -->
+  <section class="section" id="faq">
+    <div class="container">
+      <div class="section-header">
+
+        <h2 class="section-title" data-zh="常见问题解答" data-en="Frequently Asked Questions">常见问题解答</h2>
+      </div>
+
+      <div class="faq-accordion">
+        <div class="faq-item">
+          <div class="faq-question">
+            <span data-zh="1. 为什么项目名称是 CoffeeORTea 但生成 App 是 KeepAwake？" data-en="1. Why is the repo named CoffeeORTea while the app is KeepAwake?">1. 为什么项目名称是 CoffeeORTea 但生成 App 是 KeepAwake？</span>
+            <span class="faq-icon">+</span>
+          </div>
+          <div class="faq-answer">
+            <p data-zh="CoffeeORTea 是仓库全名与代号，灵感来自于用咖啡（☕️）或茶（🍵）提神保持清醒。KeepAwake 是用户系统菜单栏中实际显示的应用名称。" data-en="CoffeeORTea is the repo title & codename inspired by coffee or tea keeping developers alert. KeepAwake is the user-facing macOS application name displayed in the menu bar.">
+              CoffeeORTea 是仓库全名与代号，灵感来自于用咖啡（☕️）或茶（🍵）提神保持清醒。KeepAwake 是用户系统菜单栏中实际显示的应用名称。
+            </p>
+          </div>
+        </div>
+
+        <div class="faq-item">
+          <div class="faq-question">
+            <span data-zh="2. 所有外接显示器都能完美支持 DDC/CI 亮度调零吗？" data-en="2. Do all external monitors support DDC/CI brightness control?">2. 所有外接显示器都能完美支持 DDC/CI 亮度调零吗？</span>
+            <span class="faq-icon">+</span>
+          </div>
+          <div class="faq-answer">
+            <p data-zh="DDC/CI 的支持取决于显示器固件、HDMI/DP/Type-C 转接线以及 Apple Silicon 接口层。KeepAwake 提供了双重降级方案：若 DDC 无响应，会自动使用 macOS Gamma 曲线衰减机制将亮度屏幕调暗。" data-en="DDC/CI compatibility depends on monitor firmware, hub cables, and macOS display buses. KeepAwake automatically falls back to system Gamma curve manipulation if DDC commands are unsupported.">
+              DDC/CI 的支持取决于显示器固件、HDMI/DP/Type-C 转接线以及 Apple Silicon 接口层。KeepAwake 提供了双重降级方案：若 DDC 无响应，会自动使用 macOS Gamma 曲线衰减机制将亮度屏幕调暗。
+            </p>
+          </div>
+        </div>
+
+        <div class="faq-item">
+          <div class="faq-question">
+            <span data-zh="3. Blackout Mode 如何恢复显示？" data-en="3. How to wake up from Blackout Mode?">3. Blackout Mode 如何恢复显示？</span>
+            <span class="faq-icon">+</span>
+          </div>
+          <div class="faq-answer">
+            <p data-zh="快速摇晃/移动鼠标，或者在 2 秒内连续按键盘任意键 3 次，或者通过系统菜单栏图标关闭开关键，都能触发亮度瞬间还原。" data-en="Simply shake your mouse quickly, press any keyboard key 3 times within 2 seconds, or toggle the switch from the menu bar item.">
+              快速摇晃/移动鼠标，或者在 2 秒内连续按键盘任意键 3 次，或者通过系统菜单栏图标关闭开关键，都能触发亮度瞬间还原。
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <div class="container footer-container">
+      <div class="footer-brand">
+        <img src="assets/app-icon.png" alt="KeepAwake Logo" class="footer-logo">
+        <span class="footer-name">KeepAwake (CoffeeORTea)</span>
+        <span class="footer-tagline" data-zh="Native macOS Menu Bar App" data-en="Native macOS Menu Bar App">Native macOS Menu Bar App</span>
+      </div>
+
+      <div class="footer-meta">
+        <p class="license-info" data-zh="本项目在 MIT 许可证下开源发布。" data-en="Open source under the MIT License.">
+          本项目在 MIT 许可证下开源发布。
+        </p>
+        <p class="copyright">© 2026 KhalilHsu. Designed for macOS.</p>
+      </div>
+
+      <div class="footer-links">
+        <a href="https://github.com/KhalilHsu/CoffeeORTea" target="_blank" rel="noopener noreferrer" class="footer-link">GitHub Repository</a>
+        <a href="#top" class="footer-link" data-zh="返回顶部 ↑" data-en="Back to Top ↑">返回顶部 ↑</a>
+      </div>
+    </div>
+  </footer>
+
+  <!-- Modal / Overlay for Blackout Demo Simulation -->
+  <div class="demo-screen-overlay" id="demoOverlay">
+    <div class="overlay-content">
+      <div class="overlay-icon">🌙</div>
+      <h2 data-zh="Blackout 屏幕暗黑演示" data-en="Blackout Screen Demo">Blackout 屏幕暗黑演示</h2>
+      <p data-zh="在实际硬件上，屏幕亮度调至 0%，但系统 GPU 图形帧缓冲区仍保持 100% 渲染运转。" data-en="On real hardware, display backlight is reduced to 0, while GPU graphics topology remains fully online.">
+        在实际硬件上，屏幕亮度调至 0%，但系统 GPU 图形帧缓冲区仍保持 100% 渲染运转。
+      </p>
+      <div class="overlay-instruction">
+        <span class="pulse-key" data-zh="按键盘任意键 3 次" data-en="Press any key 3 times">按键盘任意键 3 次</span> <span data-zh="或" data-en="or">或</span> <span class="pulse-key" data-zh="移动鼠标" data-en="Move mouse">移动鼠标</span> <span data-zh="结束演示" data-en="to exit">结束演示</span>
+      </div>
+      <button class="btn btn-primary" id="closeOverlayBtn" data-zh="退出演示" data-en="Exit Demo">退出演示</button>
+    </div>
+  <!-- Native macOS Alert Modal (About KeepAwake) -->
+  <div class="mac-alert-overlay" id="macAboutModal">
+    <div class="mac-alert-dialog">
+      <div class="alert-icon-container">
+        <img src="assets/app-icon.png" alt="KeepAwake Icon" class="alert-app-icon">
+      </div>
+      <div class="alert-content">
+        <h3 class="alert-title" data-zh="关于 KeepAwake" data-en="About KeepAwake">关于 KeepAwake</h3>
+        <div class="alert-body" id="aboutModalBody">
+          <p data-zh="KeepAwake 是一款 100% 原生 macOS 菜单栏应用，可在开启期间阻止系统和显示器空闲休眠，但不会绕过手动锁屏或身份验证。" data-en="KeepAwake is a 100% native macOS menubar app that prevents idle system and display sleep while it is active. It does not bypass manual lock or authentication.">KeepAwake 是一款 100% 原生 macOS 菜单栏应用，可在开启期间阻止系统和显示器空闲休眠，但不会绕过手动锁屏或身份验证。</p>
+          <p data-zh="包含息屏模式，可安全地将显示器亮度降至 0%，适用于自动化代理和省电场景。" data-en="Includes Blackout Mode to safely dim displays to 0% for automated agents and Energy Saving.">包含息屏模式，可安全地将显示器亮度降至 0%，适用于自动化代理和省电场景。</p>
+          <div class="alert-features">
+            <span data-zh="功能特色：" data-en="Features:">功能特色：</span>
+            <ul>
+              <li data-zh="• DDC/CI 外接显示器亮度控制" data-en="• DDC/CI brightness control for external monitors">• DDC/CI 外接显示器亮度控制</li>
+              <li data-zh="• 不支持的显示器使用 Gamma 降级方案" data-en="• Gamma fallback for unsupported displays">• 不支持的显示器使用 Gamma 降级方案</li>
+              <li data-zh="• 通过鼠标/键盘安全自动恢复" data-en="• Safety auto-restore via mouse/keyboard">• 通过鼠标/键盘安全自动恢复</li>
+            </ul>
+          </div>
+          <div class="alert-meta">
+            <span data-zh="使用 Swift 和 AppKit 构建。" data-en="Built with Swift & AppKit.">使用 Swift 和 AppKit 构建。</span><br>
+            <strong>版本 1.2.0</strong>
+          </div>
+        </div>
+        <div class="alert-buttons">
+          <button class="mac-alert-btn" id="closeAboutModalBtn" data-zh="确定" data-en="OK">确定</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="script.js?v=6.0.0"></script>
+</body>
+</html>
