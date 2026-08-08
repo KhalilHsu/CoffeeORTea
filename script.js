@@ -162,6 +162,7 @@ function updateMenuSimulatorUI() {
   const coffeeLabel = document.getElementById('simCoffeeLabel');
   const statusText = document.getElementById('simStatusText');
   const durationMenuItem = document.getElementById('simDurationMenuItem');
+  const durationSubmenu = document.getElementById('simDurationSubmenu');
   const durationTitle = document.getElementById('simDurationTitle');
   const blackoutMenuItem = document.getElementById('simBlackoutMenuItem');
   const blackoutCheck = document.getElementById('simBlackoutCheck');
