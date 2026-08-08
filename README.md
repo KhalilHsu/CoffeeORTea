@@ -16,7 +16,7 @@
 KeepAwake is a native macOS menu bar utility. When enabled, it uses the system `caffeinate` command to prevent idle system and display sleep, with timed keep-awake options and Blackout Mode. It does not bypass manual locking, lid-closure behavior, or authentication.
 
 <p align="center">
-  <img src="menu-bar-native.png" alt="KeepAwake Menu Bar Preview" width="700">
+  <img src="menu-bar-native.png" alt="KeepAwake Menu Bar Preview" width="100%">
 </p>
 
 Blackout Mode normally reduces built-in and external display brightness to 0 instead of sending a display power-off command. This is intended to keep displays in the system graphics topology for background screenshots or automation, but behavior still depends on the actual display, connection path, and macOS version.
@@ -122,7 +122,7 @@ This project is released under the [MIT License](LICENSE).
 KeepAwake 是一个原生 macOS 菜单栏工具。开启后，它使用系统 `caffeinate` 保持 Mac 和显示器不因空闲而休眠，并提供定时保持唤醒与 Blackout Mode（息屏模式）。它不会绕过手动锁屏、合盖或身份验证。
 
 <p align="center">
-  <img src="menu-bar-native.png" alt="KeepAwake 菜单栏预览" width="700">
+  <img src="menu-bar-native.png" alt="KeepAwake 菜单栏预览" width="100%">
 </p>
 
 Blackout Mode 的默认策略是把内置屏幕和外接屏亮度降到 0，而不是发送显示器断电命令。这样可以尽量保持显示器仍在系统图形拓扑中，适合需要后台截图或自动化代理的场景；不同显示器、连接方式和 macOS 版本仍需在真实硬件上验证。
