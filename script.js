@@ -298,7 +298,7 @@ function initBlackoutOverlayDemo() {
 
   let startX = null;
   let startY = null;
-  const WAKE_DISTANCE_PX = 50;
+  const WAKE_DISTANCE_PX = 300;
 
   function openDemo() {
     demoOverlay.classList.add('active');
