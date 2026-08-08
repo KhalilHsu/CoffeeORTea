@@ -42,9 +42,9 @@ else
     exit 1
 fi
 
-if [ -f "AppIcon.icns" ]; then
+if [ -f "assets/AppIcon.icns" ]; then
     echo "Copying AppIcon.icns..."
-    cp AppIcon.icns "${APP_DIR}/Contents/Resources/AppIcon.icns"
+    cp assets/AppIcon.icns "${APP_DIR}/Contents/Resources/AppIcon.icns"
 else
     echo "Error: AppIcon.icns not found."
     exit 1
