@@ -3,6 +3,7 @@ import Foundation
 import UserNotifications
 import IOKit
 import Darwin
+import ServiceManagement
 
 // MARK: - DisplayServices Private Framework (for built-in Apple displays)
 
@@ -846,6 +847,7 @@ struct L10n {
     // MARK: - Menu Items
     static var setDuration: String { localized("Set Duration", zh: "设置时长") }
     static var blackoutMode: String { localized("Blackout Mode (Energy Saving)", zh: "息屏模式（省电）") }
+    static var launchAtLogin: String { localized("Launch at Login", zh: "开机启动") }
     static var aboutKeepAwake: String { localized("About KeepAwake", zh: "关于 KeepAwake") }
     static var quit: String { localized("Quit", zh: "退出") }
     
@@ -1169,6 +1171,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(NSMenuItem.separator())
 
         // ── About & Quit ──
+        let launchAtLoginItem = NSMenuItem(title: L10n.launchAtLogin, action: #selector(toggleLaunchAtLogin(_:)), keyEquivalent: "")
+        launchAtLoginItem.tag = 103
+        menu.addItem(launchAtLoginItem)
+
         let aboutItem = NSMenuItem(title: L10n.aboutKeepAwake, action: #selector(openAppInfo(_:)), keyEquivalent: "")
         aboutItem.image = nil // Ensure no system icon is added
         aboutItem.isEnabled = true
@@ -1190,6 +1196,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         if let blackoutItem = menu.item(withTag: 102) {
             blackoutItem.isEnabled = isCoffeeActive
+        }
+        if let launchAtLoginItem = menu.item(withTag: 103) {
+            launchAtLoginItem.state = SMAppService.mainApp.status == .enabled ? .on : .off
         }
     }
 
@@ -1590,6 +1599,18 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc func quitApp(_ sender: NSMenuItem) {
         deactivate()
         NSApplication.shared.terminate(nil)
+    }
+
+    @objc func toggleLaunchAtLogin(_ sender: NSMenuItem) {
+        do {
+            if SMAppService.mainApp.status == .enabled {
+                try SMAppService.mainApp.unregister()
+            } else {
+                try SMAppService.mainApp.register()
+            }
+        } catch {
+            print("Failed to toggle Launch at Login: \(error)")
+        }
     }
 }
 

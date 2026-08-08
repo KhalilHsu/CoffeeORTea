@@ -41,11 +41,10 @@ This repository currently documents a source build; it does not represent an uns
 ```bash
 git clone https://github.com/KhalilHsu/CoffeeORTea.git
 cd CoffeeORTea
-./build.sh
-open KeepAwake.app
+./install.sh
 ```
 
-`build.sh` compiles an arm64 + x86_64 universal binary, creates the app bundle, and applies an ad-hoc signature by default for local testing. macOS may show a developer-verification prompt on first launch; verify the source before allowing it to run.
+`install.sh` will call `build.sh` to compile an arm64 + x86_64 universal binary, create the app bundle, apply an ad-hoc signature, and install it to the `/Applications` folder for local use. macOS may show a developer-verification prompt on first launch; verify the source before allowing it to run.
 
 For a distribution build signed with a local certificate:
 
@@ -128,11 +127,10 @@ Blackout Mode 的默认策略是把内置屏幕和外接屏亮度降到 0，而�
 ```bash
 git clone https://github.com/KhalilHsu/CoffeeORTea.git
 cd CoffeeORTea
-./build.sh
-open KeepAwake.app
+./install.sh
 ```
 
-`build.sh` 会编译 arm64 + x86_64 universal binary，生成 App bundle，并默认使用 ad-hoc 签名，适合本机测试。首次打开时，macOS 可能显示开发者验证提示；请确认源码来源后再允许运行。
+`install.sh` 会自动调用 `build.sh` 编译 arm64 + x86_64 universal binary，生成 App bundle，并使用 ad-hoc 签名将其安装到 `/Applications`（应用程序）文件夹，适合本机使用。首次打开时，macOS 可能显示开发者验证提示；请确认源码来源后再允许运行。
 
 如需用本机证书构建分发版本：
 
