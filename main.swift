@@ -1,3 +1,4 @@
+import SwiftUI
 import Cocoa
 import Foundation
 import UserNotifications
@@ -911,11 +912,11 @@ struct L10n {
 }
 
 enum DurationOption: String, CaseIterable {
-    case indefinitely
     case fifteenMinutes
     case oneHour
     case threeHours
     case untilEightAM
+    case indefinitely
     
     var localizedName: String {
         switch self {
@@ -952,104 +953,284 @@ enum DurationOption: String, CaseIterable {
     }
 }
 
-// MARK: - ToggleMenuItemView (custom NSSwitch toggle for menu bar)
+// MARK: - ToggleMenuItemView (SwiftUI)
 
-class ToggleMenuItemView: NSView {
-    let toggleSwitch = NSSwitch()
-    private let sleepLabel = NSTextField(labelWithString: "")
-    private let coffeeLabel = NSTextField(labelWithString: "")
-    private let statusLabel = NSTextField(labelWithString: "")
+struct CustomToggle: View {
+    @Binding var isOn: Bool
+    
+    var body: some View {
+        ZStack {
+            Capsule()
+                .fill(isOn ? Color.accentColor : Color.gray.opacity(0.3))
+                .frame(width: 38, height: 22)
+            
+            Circle()
+                .fill(Color.white)
+                .shadow(color: .black.opacity(0.15), radius: 1, x: 0, y: 1)
+                .frame(width: 18, height: 18)
+                .offset(x: isOn ? 8 : -8)
+                .animation(.spring(response: 0.25, dampingFraction: 0.65), value: isOn)
+        }
+        .onTapGesture {
+            isOn.toggle()
+        }
+    }
+}
 
+class ToggleMenuState: ObservableObject {
+    @Published var isOn: Bool = false
+    @Published var statusText: String = ""
     var onToggle: ((Bool) -> Void)?
+}
 
+struct ToggleMenuView: View {
+    @ObservedObject var state: ToggleMenuState
+    
+    var body: some View {
+        VStack(spacing: 4) {
+            HStack {
+                Text(L10n.sleepLabel)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(state.isOn ? .secondary : .primary)
+                    .padding(.leading, 12)
+                
+                Spacer()
+                
+                CustomToggle(isOn: Binding(
+                    get: { state.isOn },
+                    set: { newValue in
+                        state.isOn = newValue
+                        state.onToggle?(newValue)
+                    }
+                ))
+                
+                Spacer()
+                
+                Text(L10n.coffeeLabel)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(state.isOn ? .primary : .secondary)
+                    .padding(.trailing, 12)
+            }
+            
+            if !state.statusText.isEmpty {
+                Text(state.statusText)
+                    .font(.system(size: 11))
+                    .foregroundColor(Color(nsColor: .secondaryLabelColor))
+                    .multilineTextAlignment(.center)
+            }
+        }
+        .frame(width: 280, height: 56)
+        .environment(\.controlActiveState, .active)
+    }
+}
+
+class ToggleMenuItemView: NSHostingView<ToggleMenuView> {
+    let state = ToggleMenuState()
+    
+    var onToggle: ((Bool) -> Void)? {
+        get { state.onToggle }
+        set { state.onToggle = newValue }
+    }
+    
     var isOn: Bool {
-        get { toggleSwitch.state == .on }
-        set {
-            toggleSwitch.state = newValue ? .on : .off
-            updateAppearance()
-        }
+        get { state.isOn }
+        set { state.isOn = newValue }
     }
-
-    var statusText: String = "" {
-        didSet {
-            statusLabel.stringValue = statusText
-            statusLabel.isHidden = statusText.isEmpty
-        }
+    
+    var statusText: String {
+        get { state.statusText }
+        set { state.statusText = newValue }
     }
-
+    
     init() {
-        super.init(frame: NSRect(x: 0, y: 0, width: 280, height: 56))
-        setupUI()
+        super.init(rootView: ToggleMenuView(state: ToggleMenuState())) // Dummy init
+        self.rootView = ToggleMenuView(state: self.state)
+        self.frame = NSRect(x: 0, y: 0, width: 280, height: 56)
     }
-
-    required init?(coder: NSCoder) {
+    
+    @MainActor required dynamic init?(coder aDecoder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
+    
+    @MainActor required dynamic init(rootView: ToggleMenuView) {
+        fatalError("init(rootView:) has not been implemented")
+    }
+}
 
-    private func setupUI() {
-        sleepLabel.stringValue = L10n.sleepLabel
-        coffeeLabel.stringValue = L10n.coffeeLabel
+// MARK: - DurationSliderMenuItemView (SwiftUI)
 
-        // Configure text labels
-        for label in [sleepLabel, coffeeLabel] {
-            label.isBezeled = false
-            label.drawsBackground = false
-            label.isEditable = false
-            label.isSelectable = false
-            label.font = .systemFont(ofSize: 13, weight: .medium)
+struct CustomDiscreteSlider: View {
+    @Binding var value: Int
+    let range: ClosedRange<Int>
+    var isEnabled: Bool
+    var onEditingChanged: (Bool) -> Void
+    
+    let trackHeight: CGFloat = 20
+    let thumbSize: CGFloat = 26
+    
+    @State private var isDraggingThumb = false
+    
+    var body: some View {
+        GeometryReader { geometry in
+            let width = geometry.size.width
+            let usableWidth = width - thumbSize
+            let stepCount = CGFloat(range.upperBound - range.lowerBound)
+            let stepWidth = stepCount > 0 ? usableWidth / stepCount : 0
+            
+            let currentX = CGFloat(value - range.lowerBound) * stepWidth
+            
+            ZStack(alignment: .leading) {
+                // Inactive Track
+                RoundedRectangle(cornerRadius: trackHeight / 2)
+                    .fill(Color.gray.opacity(0.2))
+                    .frame(height: trackHeight)
+                
+                // Active Track
+                RoundedRectangle(cornerRadius: trackHeight / 2)
+                    .fill(isEnabled ? Color.accentColor : Color.gray.opacity(0.4))
+                    .frame(width: currentX + thumbSize, height: trackHeight)
+                
+                // Ticks
+                ForEach(range, id: \.self) { i in
+                    let tickX = CGFloat(i - range.lowerBound) * stepWidth
+                    let isActive = i <= value
+                    Circle()
+                        .fill(isActive ? Color.white.opacity(0.5) : Color.gray.opacity(0.4))
+                        .frame(width: 5, height: 5)
+                        .offset(x: tickX + thumbSize / 2 - 2.5)
+                }
+                
+                // Thumb
+                Circle()
+                    .fill(Color.white)
+                    .shadow(color: Color.black.opacity(0.15), radius: 2, x: 0, y: 1)
+                    .frame(width: thumbSize, height: thumbSize)
+                    .scaleEffect(isDraggingThumb ? 1.15 : 1.0)
+                    .animation(.spring(response: 0.2, dampingFraction: 0.6), value: isDraggingThumb)
+                    .offset(x: currentX)
+                    .gesture(
+                        DragGesture(minimumDistance: 0)
+                            .onChanged { gesture in
+                                guard isEnabled else { return }
+                                if !isDraggingThumb {
+                                    isDraggingThumb = true
+                                }
+                                onEditingChanged(true)
+                                let dragX = gesture.location.x - thumbSize / 2
+                                let rawValue = round(dragX / stepWidth) + CGFloat(range.lowerBound)
+                                let clampedValue = min(max(Int(rawValue), range.lowerBound), range.upperBound)
+                                if clampedValue != value {
+                                    value = clampedValue
+                                    NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .default)
+                                }
+                            }
+                            .onEnded { _ in
+                                guard isEnabled else { return }
+                                if isDraggingThumb {
+                                    isDraggingThumb = false
+                                }
+                                onEditingChanged(false)
+                            }
+                    )
+            }
+            .frame(height: max(trackHeight, thumbSize))
+            .onDisappear {
+                if isDraggingThumb {
+                    isDraggingThumb = false
+                }
+            }
         }
-
-        statusLabel.isBezeled = false
-        statusLabel.drawsBackground = false
-        statusLabel.isEditable = false
-        statusLabel.isSelectable = false
-        statusLabel.font = .systemFont(ofSize: 11)
-        statusLabel.textColor = .secondaryLabelColor
-        statusLabel.alignment = .center
-        statusLabel.isHidden = true
-
-        toggleSwitch.target = self
-        toggleSwitch.action = #selector(switchToggled(_:))
-
-        addSubview(sleepLabel)
-        addSubview(toggleSwitch)
-        addSubview(coffeeLabel)
-        addSubview(statusLabel)
-
-        // Auto Layout
-        sleepLabel.translatesAutoresizingMaskIntoConstraints = false
-        toggleSwitch.translatesAutoresizingMaskIntoConstraints = false
-        coffeeLabel.translatesAutoresizingMaskIntoConstraints = false
-        statusLabel.translatesAutoresizingMaskIntoConstraints = false
-
-        NSLayoutConstraint.activate([
-            sleepLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 18),
-            sleepLabel.topAnchor.constraint(equalTo: topAnchor, constant: 10),
-
-            toggleSwitch.centerXAnchor.constraint(equalTo: centerXAnchor),
-            toggleSwitch.centerYAnchor.constraint(equalTo: sleepLabel.centerYAnchor),
-
-            coffeeLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -18),
-            coffeeLabel.centerYAnchor.constraint(equalTo: sleepLabel.centerYAnchor),
-
-            statusLabel.centerXAnchor.constraint(equalTo: centerXAnchor),
-            statusLabel.topAnchor.constraint(equalTo: toggleSwitch.bottomAnchor, constant: 8),
-            statusLabel.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: 10),
-            statusLabel.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -10),
-        ])
-
-        updateAppearance()
+        .frame(height: max(trackHeight, thumbSize))
     }
+}
 
-    private func updateAppearance() {
-        let active = toggleSwitch.state == .on
-        sleepLabel.textColor = active ? .tertiaryLabelColor : .labelColor
-        coffeeLabel.textColor = active ? .labelColor : .tertiaryLabelColor
+class DurationSliderState: ObservableObject {
+    @Published var selectedDuration: DurationOption = .indefinitely
+    @Published var isEnabled: Bool = true
+    var onDurationChanged: ((DurationOption) -> Void)?
+}
+
+struct DurationSliderMenuView: View {
+    @ObservedObject var state: DurationSliderState
+    @State private var isEditing: Bool = false
+    
+    var body: some View {
+        VStack(spacing: 4) {
+            HStack {
+                Text(L10n.setDuration)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(state.isEnabled ? .primary : .secondary)
+                    .padding(.leading, 24)
+                Spacer()
+                Text(state.selectedDuration.localizedName)
+                    .font(.system(size: 13, weight: .regular))
+                    .foregroundColor(state.isEnabled ? .secondary : Color(nsColor: .tertiaryLabelColor))
+                    .padding(.trailing, 21)
+            }
+            
+            CustomDiscreteSlider(
+                value: Binding(get: {
+                    DurationOption.allCases.firstIndex(of: state.selectedDuration) ?? 0
+                }, set: { index in
+                    if index >= 0 && index < DurationOption.allCases.count {
+                        state.selectedDuration = DurationOption.allCases[index]
+                    }
+                }),
+                range: 0...(DurationOption.allCases.count - 1),
+                isEnabled: state.isEnabled,
+                onEditingChanged: { editing in
+                    isEditing = editing
+                    if !editing {
+                        state.onDurationChanged?(state.selectedDuration)
+                    }
+                }
+            )
+            .padding(.leading, 20)
+            .padding(.trailing, 17)
+        }
+        .frame(width: 280, height: 52)
+        .environment(\.controlActiveState, .active) // Forces active accent color
+        .onDisappear {
+            // If the menu is abruptly closed (e.g. mouse released outside the menu window)
+            // we need to commit the value we were dragging to.
+            if isEditing {
+                isEditing = false
+                state.onDurationChanged?(state.selectedDuration)
+            }
+        }
     }
+}
 
-    @objc private func switchToggled(_ sender: NSSwitch) {
-        updateAppearance()
-        onToggle?(sender.state == .on)
+class DurationSliderMenuItemView: NSHostingView<DurationSliderMenuView> {
+    let state = DurationSliderState()
+    
+    var onDurationChanged: ((DurationOption) -> Void)? {
+        get { state.onDurationChanged }
+        set { state.onDurationChanged = newValue }
+    }
+    
+    var isEnabled: Bool {
+        get { state.isEnabled }
+        set { state.isEnabled = newValue }
+    }
+    
+    var selectedDuration: DurationOption {
+        get { state.selectedDuration }
+        set { state.selectedDuration = newValue }
+    }
+    
+    init() {
+        super.init(rootView: DurationSliderMenuView(state: DurationSliderState())) // Dummy init
+        self.rootView = DurationSliderMenuView(state: self.state)
+        self.frame = NSRect(x: 0, y: 0, width: 280, height: 52)
+    }
+    
+    @MainActor required dynamic init?(coder aDecoder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+    
+    @MainActor required dynamic init(rootView: DurationSliderMenuView) {
+        fatalError("init(rootView:) has not been implemented")
     }
 }
 
@@ -1064,6 +1245,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     // UI references
     let toggleView = ToggleMenuItemView()
+    let durationSliderView = DurationSliderMenuItemView()
 
     // Blackout Mode state
     var isBlackoutModeActive: Bool = false
@@ -1145,21 +1327,24 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         menu.addItem(NSMenuItem.separator())
 
-        // ── Set Duration submenu (disabled by default when Sleep is active) ──
-        let durationMenuItem = NSMenuItem(title: "\(L10n.setDuration)  \(selectedDuration.localizedName)", action: nil, keyEquivalent: "")
+        // ── Set Duration Slider (disabled by default when Sleep is active) ──
+        let durationMenuItem = NSMenuItem()
         durationMenuItem.tag = 101
         durationMenuItem.isEnabled = false
-        let durationSubmenu = NSMenu()
-        durationSubmenu.autoenablesItems = false
         
-        for duration in DurationOption.allCases {
-            let item = NSMenuItem(title: duration.localizedName, action: #selector(changeDuration(_:)), keyEquivalent: "")
-            item.representedObject = duration.rawValue
-            item.isEnabled = false
-            item.state = (duration == selectedDuration) ? .on : .off
-            durationSubmenu.addItem(item)
+        durationSliderView.selectedDuration = selectedDuration
+        durationSliderView.onDurationChanged = { [weak self] newDuration in
+            guard let self = self else { return }
+            self.selectedDuration = newDuration
+            // The user wanted this in the main panel. If they drag the slider, we want to update.
+            // Only reactivate if we're currently awake, OR the user explicitly expects this to turn it on?
+            // Usually, changing duration while asleep doesn't wake it. Just changing setting.
+            // If it is active, we should re-activate with new duration.
+            if self.isKeepAwakeActive {
+                self.activate()
+            }
         }
-        durationMenuItem.submenu = durationSubmenu
+        durationMenuItem.view = durationSliderView
         menu.addItem(durationMenuItem)
 
         // ── Blackout Mode toggle (disabled by default when Sleep is active) ──
@@ -1191,8 +1376,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let isCoffeeActive = isKeepAwakeActive
         if let durationItem = menu.item(withTag: 101) {
             durationItem.isEnabled = isCoffeeActive
-            durationItem.submenu?.items.forEach { $0.isEnabled = isCoffeeActive }
-            durationItem.title = "\(L10n.setDuration)  \(selectedDuration.localizedName)"
+            durationSliderView.isEnabled = isCoffeeActive
+            durationSliderView.selectedDuration = selectedDuration
         }
         if let blackoutItem = menu.item(withTag: 102) {
             blackoutItem.isEnabled = isCoffeeActive
@@ -1212,8 +1397,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func updateWakeMenuState(isActive: Bool) {
         if let durationItem = statusItem.menu?.item(withTag: 101) {
             durationItem.isEnabled = isActive
-            durationItem.submenu?.items.forEach { $0.isEnabled = isActive }
-            durationItem.title = "\(L10n.setDuration)  \(selectedDuration.localizedName)"
+            durationSliderView.isEnabled = isActive
+            durationSliderView.selectedDuration = selectedDuration
         }
         if let blackoutItem = statusItem.menu?.item(withTag: 102) {
             blackoutItem.isEnabled = isActive
@@ -1259,23 +1444,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
-    @objc func changeDuration(_ sender: NSMenuItem) {
-        guard let rawValue = sender.representedObject as? String,
-              let duration = DurationOption(rawValue: rawValue) else { return }
-        
-        selectedDuration = duration
 
-        // Update checkmarks in submenu
-        if let submenu = sender.menu {
-            for item in submenu.items {
-                let itemDurationRaw = item.representedObject as? String
-                item.state = (itemDurationRaw == duration.rawValue) ? .on : .off
-            }
-        }
-
-        // Activate/reactivate with new duration
-        activate()
-    }
 
     @objc func toggleBlackoutMode(_ sender: NSMenuItem) {
         if isBlackoutModeActive {
