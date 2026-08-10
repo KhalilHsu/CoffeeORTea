@@ -849,6 +849,9 @@ struct L10n {
     static var setDuration: String { localized("Set Duration", zh: "设置时长") }
     static var blackoutMode: String { localized("Blackout Mode (Energy Saving)", zh: "息屏模式（省电）") }
     static var launchAtLogin: String { localized("Launch at Login", zh: "开机启动") }
+    static var notificationsWaiting: String { localized("Notifications: Waiting for permission…", zh: "通知：等待授权…") }
+    static var notificationsEnabled: String { localized("Notifications: On (Open Settings)", zh: "通知：已开启（打开设置）") }
+    static var notificationsDisabled: String { localized("Notifications: Off (Open Settings)", zh: "通知：已关闭（打开设置）") }
     static var aboutKeepAwake: String { localized("About KeepAwake", zh: "关于 KeepAwake") }
     static var quit: String { localized("Quit", zh: "退出") }
     
@@ -1239,12 +1242,17 @@ class DurationSliderMenuItemView: NSHostingView<DurationSliderMenuView> {
 
 // MARK: - AppDelegate
 
-class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
+class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotificationCenterDelegate {
     var statusItem: NSStatusItem!
     var caffeinateProcess: Process?
     var timer: Timer?
     var endTime: Date?
     var selectedDuration: DurationOption = .indefinitely
+
+    private let notificationCenter = UNUserNotificationCenter.current()
+    private var notificationAuthorizationStatus: UNAuthorizationStatus = .notDetermined
+    private var notificationAuthorizationResolved = false
+    private var pendingNotifications: [(title: String, body: String)] = []
 
     // UI references
     let toggleView = ToggleMenuItemView()
@@ -1263,6 +1271,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func applicationDidFinishLaunching(_ aNotification: Notification) {
         guard ensureSingleInstance() else { return }
 
+        notificationCenter.delegate = self
         requestNotificationPermission()
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -1296,12 +1305,73 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         killCaffeinate()
     }
 
+    private var canDeliverNotifications: Bool {
+        notificationAuthorizationStatus == .authorized
+            || notificationAuthorizationStatus == .provisional
+    }
+
     func requestNotificationPermission() {
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { granted, error in
-            if let error = error {
-                print("Notification authorization error: \(error)")
+        notificationCenter.getNotificationSettings { [weak self] settings in
+            guard let self = self else { return }
+
+            guard settings.authorizationStatus == .notDetermined else {
+                self.updateNotificationAuthorization(settings.authorizationStatus)
+                return
+            }
+
+            self.notificationCenter.requestAuthorization(options: [.alert, .sound]) { [weak self] _, error in
+                if let error = error {
+                    print("Notification authorization error: \(error)")
+                }
+
+                // Read the final status instead of trusting the Boolean alone.
+                // This also makes the menu reflect changes made in System Settings.
+                self?.notificationCenter.getNotificationSettings { [weak self] settings in
+                    self?.updateNotificationAuthorization(settings.authorizationStatus)
+                }
             }
         }
+    }
+
+    private func refreshNotificationAuthorizationStatus() {
+        notificationCenter.getNotificationSettings { [weak self] settings in
+            self?.updateNotificationAuthorization(settings.authorizationStatus)
+        }
+    }
+
+    private func updateNotificationAuthorization(_ status: UNAuthorizationStatus) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+
+            self.notificationAuthorizationStatus = status
+            self.notificationAuthorizationResolved = true
+            self.updateNotificationMenuItem()
+
+            guard self.canDeliverNotifications else {
+                if status == .denied {
+                    print("Notifications are disabled for KeepAwake in System Settings")
+                }
+                self.pendingNotifications.removeAll()
+                return
+            }
+
+            let pending = self.pendingNotifications
+            self.pendingNotifications.removeAll()
+            for notification in pending {
+                self.addNotification(title: notification.title, body: notification.body)
+            }
+        }
+    }
+
+    private func notificationMenuTitle() -> String {
+        guard notificationAuthorizationResolved else {
+            return L10n.notificationsWaiting
+        }
+        return canDeliverNotifications ? L10n.notificationsEnabled : L10n.notificationsDisabled
+    }
+
+    private func updateNotificationMenuItem() {
+        statusItem?.menu?.item(withTag: 104)?.title = notificationMenuTitle()
     }
 
     func constructMenu() {
@@ -1363,6 +1433,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         launchAtLoginItem.tag = 103
         menu.addItem(launchAtLoginItem)
 
+        let notificationItem = NSMenuItem(title: notificationMenuTitle(), action: #selector(openNotificationSettings(_:)), keyEquivalent: "")
+        notificationItem.tag = 104
+        menu.addItem(notificationItem)
+
         let aboutItem = NSMenuItem(title: L10n.aboutKeepAwake, action: #selector(openAppInfo(_:)), keyEquivalent: "")
         aboutItem.image = nil // Ensure no system icon is added
         aboutItem.isEnabled = true
@@ -1376,6 +1450,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func menuWillOpen(_ menu: NSMenu) {
         refreshWakeStatus()
+        refreshNotificationAuthorizationStatus()
         let isCoffeeActive = isKeepAwakeActive
         if let durationItem = menu.item(withTag: 101) {
             durationItem.isEnabled = isCoffeeActive
@@ -1746,16 +1821,56 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
+    // A menu-bar app is often considered foreground while its menu is open.
+    // Without this delegate method macOS may silently suppress the banner.
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification,
+        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+    ) {
+        completionHandler([.banner, .list, .sound])
+    }
+
     func showNotification(title: String, body: String) {
+        guard notificationAuthorizationResolved else {
+            pendingNotifications.append((title: title, body: body))
+            print("Notification queued until authorization is resolved: \(title)")
+            return
+        }
+
+        guard canDeliverNotifications else {
+            print("Notification skipped because authorization is disabled: \(title)")
+            return
+        }
+
+        addNotification(title: title, body: body)
+    }
+
+    private func addNotification(title: String, body: String) {
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
         content.sound = UNNotificationSound.default
 
         let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
-        UNUserNotificationCenter.current().add(request)
+        notificationCenter.add(request) { error in
+            if let error = error {
+                print("Notification delivery error: \(error)")
+            }
+        }
 
         print("Notification - \(title): \(body)")
+    }
+
+    @objc func openNotificationSettings(_ sender: NSMenuItem) {
+        let settingsURLs = [
+            "x-apple.systempreferences:com.apple.Notifications-Settings",
+            "x-apple.systempreferences:com.apple.preference.notifications"
+        ].compactMap(URL.init(string:))
+
+        for url in settingsURLs where NSWorkspace.shared.open(url) {
+            return
+        }
     }
 
     @objc func openAppInfo(_ sender: NSMenuItem) {
