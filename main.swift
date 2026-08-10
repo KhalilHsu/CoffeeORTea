@@ -1089,6 +1089,7 @@ struct CustomDiscreteSlider: View {
                 RoundedRectangle(cornerRadius: trackHeight / 2)
                     .fill(isEnabled ? Color.accentColor : Color.gray.opacity(0.4))
                     .frame(width: currentX + thumbSize, height: trackHeight)
+                    .animation(.spring(response: 0.2, dampingFraction: 0.9), value: currentX)
                 
                 // Ticks
                 ForEach(range, id: \.self) { i in
@@ -1106,33 +1107,35 @@ struct CustomDiscreteSlider: View {
                     .shadow(color: Color.black.opacity(0.15), radius: 2, x: 0, y: 1)
                     .frame(width: thumbSize, height: thumbSize)
                     .scaleEffect(isDraggingThumb ? 1.15 : 1.0)
-                    .animation(.spring(response: 0.2, dampingFraction: 0.6), value: isDraggingThumb)
+                    .animation(.spring(response: 0.2, dampingFraction: 0.9), value: isDraggingThumb)
                     .offset(x: currentX)
-                    .gesture(
-                        DragGesture(minimumDistance: 0)
-                            .onChanged { gesture in
-                                guard isEnabled else { return }
-                                if !isDraggingThumb {
-                                    isDraggingThumb = true
-                                }
-                                onEditingChanged(true)
-                                let dragX = gesture.location.x - thumbSize / 2
-                                let rawValue = round(dragX / stepWidth) + CGFloat(range.lowerBound)
-                                let clampedValue = min(max(Int(rawValue), range.lowerBound), range.upperBound)
-                                if clampedValue != value {
-                                    value = clampedValue
-                                    NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .default)
-                                }
-                            }
-                            .onEnded { _ in
-                                guard isEnabled else { return }
-                                if isDraggingThumb {
-                                    isDraggingThumb = false
-                                }
-                                onEditingChanged(false)
-                            }
-                    )
+                    .animation(.spring(response: 0.2, dampingFraction: 0.9), value: currentX)
             }
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { gesture in
+                        guard isEnabled else { return }
+                        if !isDraggingThumb {
+                            isDraggingThumb = true
+                        }
+                        onEditingChanged(true)
+                        let dragX = gesture.location.x - thumbSize / 2
+                        let rawValue = round(dragX / stepWidth) + CGFloat(range.lowerBound)
+                        let clampedValue = min(max(Int(rawValue), range.lowerBound), range.upperBound)
+                        if clampedValue != value {
+                            value = clampedValue
+                            NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .default)
+                        }
+                    }
+                    .onEnded { _ in
+                        guard isEnabled else { return }
+                        if isDraggingThumb {
+                            isDraggingThumb = false
+                        }
+                        onEditingChanged(false)
+                    }
+            )
             .frame(height: max(trackHeight, thumbSize))
             .onDisappear {
                 if isDraggingThumb {
