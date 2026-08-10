@@ -50,6 +50,14 @@ else
     exit 1
 fi
 
+if [ -f "assets/Assets.car" ]; then
+    echo "Copying compiled AppIcon asset catalog..."
+    cp assets/Assets.car "${APP_DIR}/Contents/Resources/Assets.car"
+else
+    echo "Error: Assets.car not found."
+    exit 1
+fi
+
 # 4. Compile Swift code
 echo "Compiling main.swift with swiftc..."
 if [ -f "main.swift" ]; then
