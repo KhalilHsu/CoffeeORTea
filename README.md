@@ -30,6 +30,7 @@ Blackout Mode normally reduces built-in and external display brightness to 0 ins
 - A protected temporary recovery file plus an independent watchdog for best-effort restoration after an unexpected exit.
 - Rapid mouse movement or three key presses in a short window can restore the displays.
 - English and Simplified Chinese menus and notifications, following the macOS preferred language.
+- Notifications and Launch at Login are enabled by default on first run; either can be turned off from the menu and the choice is preserved.
 - macOS 13 or later; no third-party packages or Xcode project are required.
 
 ## Security, privacy, and data boundaries
@@ -38,7 +39,7 @@ Blackout Mode normally reduces built-in and external display brightness to 0 ins
 - It starts and manages only its own `/usr/bin/caffeinate` process and does not terminate assertions owned by other programs.
 - The temporary Blackout recovery file contains only the state needed to restore the current displays (display IDs, brightness, Gamma, and external-display IORegistry paths). The watchdog deletes it after recovery, and the file is restricted to the current user.
 - The global keyboard monitor only counts whether three keys were pressed within a short window; it does not read, store, or upload key values. macOS may require authorization under System Settings → Privacy & Security → Input Monitoring/Accessibility. Mouse restoration may still work without it.
-- Notifications are optional and do not affect KeepAwake itself. On the first launch, allow KeepAwake in the macOS notification permission prompt. Notifications are sent when KeepAwake is activated or deactivated, when Blackout Mode is activated/deactivated/auto-restored, or when Blackout Mode cannot safely dim a display. Installing or launching the app alone does not create a notification. If permission is denied, use the `Notifications: Off (Open Settings)` menu item to open System Settings.
+- Notifications are optional and do not affect KeepAwake itself. On the first launch, allow KeepAwake in the macOS notification permission prompt. Use the checkmarked `Notifications` menu item to turn app notifications on or off without opening System Settings. Notifications are sent when KeepAwake is activated or deactivated, when Blackout Mode is activated/deactivated/auto-restored, or when Blackout Mode cannot safely dim a display. Installing or launching the app alone does not create a notification. If macOS notification permission has been denied, it must be restored manually in System Settings before the in-app toggle can be enabled again.
 
 ## Requirements
 
@@ -136,6 +137,7 @@ Blackout Mode 的默认策略是把内置屏幕和外接屏亮度降到 0，而�
 - Blackout 状态写入受限的临时恢复文件，并启动独立 watchdog；主进程异常退出后，watchdog 会尝试恢复显示器状态。
 - 快速移动鼠标或在短时间内连续按 3 次键，可触发显示恢复。
 - 中英文菜单和通知，语言跟随 macOS 首选语言。
+- 首次运行默认开启通知和开机启动；两项都可在菜单中关闭，并会保留用户的选择。
 - macOS 13+，不依赖第三方包或 Xcode 工程。
 
 ## 安全、隐私与数据边界
@@ -144,7 +146,7 @@ Blackout Mode 的默认策略是把内置屏幕和外接屏亮度降到 0，而�
 - 应用只启动和管理自己创建的 `/usr/bin/caffeinate` 进程，不会终止其他程序的保持唤醒断言。
 - Blackout 的临时恢复文件只记录当前显示器恢复所需的状态（显示器 ID、亮度、Gamma，以及外接显示器的 IORegistry 路径），恢复后由 watchdog 删除；文件会设置为仅当前用户可读写。
 - 全局键盘监听只用于统计“是否在短时间内按了 3 次键”，不会读取、保存或上传按键内容。macOS 可能要求在“系统设置 → 隐私与安全性 → 输入监控/辅助功能”中授权；拒绝后鼠标恢复仍可能可用。
-- 通知授权是可选的，不影响保持唤醒本身。首次启动时，请在 macOS 通知权限弹窗中允许 KeepAwake。通知只会在开启或关闭保持唤醒、开启/关闭/自动恢复息屏模式，或息屏模式无法安全调暗显示器时发送；仅安装或启动应用不会自动产生通知。如果之前拒绝过权限，可点击菜单中的“通知：已关闭（打开设置）”进入系统设置重新开启。
+- 通知授权是可选的，不影响保持唤醒本身。首次启动时，请在 macOS 通知权限弹窗中允许 KeepAwake。菜单中的“通知”使用勾选状态表示应用内通知开关，点击只切换开关，不会打开系统设置。通知只会在开启或关闭保持唤醒、开启/关闭/自动恢复息屏模式，或息屏模式无法安全调暗显示器时发送；仅安装或启动应用不会自动产生通知。如果 macOS 通知权限已被拒绝，仍需先在系统设置中手动恢复权限，应用内开关才能再次开启。
 
 ## 要求
 
@@ -204,6 +206,4 @@ CODESIGN_IDENTITY="Developer ID Application: Your Name" ./build.sh
 ## 许可证
 
 本项目使用 [MIT License](LICENSE)。
-
-
 

@@ -849,9 +849,7 @@ struct L10n {
     static var setDuration: String { localized("Set Duration", zh: "设置时长") }
     static var blackoutMode: String { localized("Blackout Mode (Energy Saving)", zh: "息屏模式（省电）") }
     static var launchAtLogin: String { localized("Launch at Login", zh: "开机启动") }
-    static var notificationsWaiting: String { localized("Notifications: Waiting for permission…", zh: "通知：等待授权…") }
-    static var notificationsEnabled: String { localized("Notifications: On (Open Settings)", zh: "通知：已开启（打开设置）") }
-    static var notificationsDisabled: String { localized("Notifications: Off (Open Settings)", zh: "通知：已关闭（打开设置）") }
+    static var notifications: String { localized("Notifications", zh: "通知") }
     static var aboutKeepAwake: String { localized("About KeepAwake", zh: "关于 KeepAwake") }
     static var quit: String { localized("Quit", zh: "退出") }
     
@@ -1166,7 +1164,7 @@ struct DurationSliderMenuView: View {
                 Text(L10n.setDuration)
                     .font(.system(size: 13, weight: .medium))
                     .foregroundColor(state.isEnabled ? .primary : .secondary)
-                    .padding(.leading, 24)
+                    .padding(.leading, 16)
                 Spacer()
                 Text(state.selectedDuration.localizedName)
                     .font(.system(size: 13, weight: .regular))
@@ -1191,7 +1189,7 @@ struct DurationSliderMenuView: View {
                     }
                 }
             )
-            .padding(.leading, 20)
+            .padding(.leading, 16)
             .padding(.trailing, 17)
         }
         .frame(width: 280, height: 52)
@@ -1240,6 +1238,114 @@ class DurationSliderMenuItemView: NSHostingView<DurationSliderMenuView> {
     }
 }
 
+// MARK: - TrailingCheckMenuItemView (AppKit)
+
+final class TrailingCheckMenuItemView: NSView {
+    let rowTitle: String
+    let showsIndicator: Bool
+    var onActivate: (() -> Void)?
+
+    var isOn = false {
+        didSet { needsDisplay = true }
+    }
+
+    var isItemEnabled = true {
+        didSet { needsDisplay = true }
+    }
+
+    private var isHovered = false {
+        didSet { needsDisplay = true }
+    }
+
+    init(title: String, showsIndicator: Bool) {
+        self.rowTitle = title
+        self.showsIndicator = showsIndicator
+        super.init(frame: NSRect(x: 0, y: 0, width: 280, height: 24))
+    }
+
+    @MainActor required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        for area in trackingAreas {
+            removeTrackingArea(area)
+        }
+        addTrackingArea(NSTrackingArea(
+            rect: bounds,
+            options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        ))
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        isHovered = true
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        isHovered = false
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        guard isItemEnabled, bounds.contains(convert(event.locationInWindow, from: nil)) else {
+            return
+        }
+        enclosingMenuItem?.menu?.cancelTracking()
+        onActivate?()
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+
+        let isHighlighted = isHovered || enclosingMenuItem?.isHighlighted == true
+        if isHighlighted && isItemEnabled {
+            NSColor.controlAccentColor.setFill()
+            NSBezierPath(
+                roundedRect: bounds.insetBy(dx: 5, dy: 0),
+                xRadius: 5,
+                yRadius: 5
+            ).fill()
+        }
+
+        let textColor: NSColor
+        if !isItemEnabled {
+            textColor = .tertiaryLabelColor
+        } else if isHighlighted {
+            textColor = .alternateSelectedControlTextColor
+        } else {
+            textColor = .labelColor
+        }
+
+        let titleAttributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.menuFont(ofSize: 13),
+            .foregroundColor: textColor
+        ]
+        let titleSize = rowTitle.size(withAttributes: titleAttributes)
+        rowTitle.draw(
+            at: NSPoint(x: 16, y: (bounds.height - titleSize.height) / 2),
+            withAttributes: titleAttributes
+        )
+
+        if showsIndicator && isOn {
+            let checkmark = "✓"
+            let checkmarkAttributes: [NSAttributedString.Key: Any] = [
+                .font: NSFont.systemFont(ofSize: 13, weight: .semibold),
+                .foregroundColor: textColor
+            ]
+            let checkmarkSize = checkmark.size(withAttributes: checkmarkAttributes)
+            checkmark.draw(
+                at: NSPoint(
+                    x: bounds.width - 16 - checkmarkSize.width,
+                    y: (bounds.height - checkmarkSize.height) / 2
+                ),
+                withAttributes: checkmarkAttributes
+            )
+        }
+    }
+}
+
 // MARK: - AppDelegate
 
 class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotificationCenterDelegate {
@@ -1250,13 +1356,42 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifi
     var selectedDuration: DurationOption = .indefinitely
 
     private let notificationCenter = UNUserNotificationCenter.current()
+    private let notificationsEnabledKey = "notificationsEnabled"
+    private let launchAtLoginConfiguredKey = "launchAtLoginConfigured"
     private var notificationAuthorizationStatus: UNAuthorizationStatus = .notDetermined
     private var notificationAuthorizationResolved = false
     private var pendingNotifications: [(title: String, body: String)] = []
+    private var notificationsEnabled: Bool = {
+        let defaults = UserDefaults.standard
+        guard defaults.object(forKey: "notificationsEnabled") != nil else {
+            return true
+        }
+        return defaults.bool(forKey: "notificationsEnabled")
+    }()
 
     // UI references
     let toggleView = ToggleMenuItemView()
     let durationSliderView = DurationSliderMenuItemView()
+    let blackoutMenuView = TrailingCheckMenuItemView(
+        title: L10n.blackoutMode,
+        showsIndicator: true
+    )
+    let launchAtLoginMenuView = TrailingCheckMenuItemView(
+        title: L10n.launchAtLogin,
+        showsIndicator: true
+    )
+    let notificationMenuView = TrailingCheckMenuItemView(
+        title: L10n.notifications,
+        showsIndicator: true
+    )
+    let aboutMenuView = TrailingCheckMenuItemView(
+        title: L10n.aboutKeepAwake,
+        showsIndicator: false
+    )
+    let quitMenuView = TrailingCheckMenuItemView(
+        title: L10n.quit,
+        showsIndicator: false
+    )
 
     // Blackout Mode state
     var isBlackoutModeActive: Bool = false
@@ -1271,14 +1406,38 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifi
     func applicationDidFinishLaunching(_ aNotification: Notification) {
         guard ensureSingleInstance() else { return }
 
+        configureDefaultLaunchAtLogin()
+
         notificationCenter.delegate = self
-        requestNotificationPermission()
+        if notificationsEnabled {
+            requestNotificationPermission()
+        } else {
+            refreshNotificationAuthorizationStatus()
+        }
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         setStatusBarIcon(isAwake: false)
 
         constructMenu()
         refreshWakeStatus()
+    }
+
+    private func configureDefaultLaunchAtLogin() {
+        let defaults = UserDefaults.standard
+        guard defaults.object(forKey: launchAtLoginConfiguredKey) == nil else {
+            return
+        }
+
+        do {
+            if SMAppService.mainApp.status != .enabled {
+                try SMAppService.mainApp.register()
+            }
+            defaults.set(true, forKey: launchAtLoginConfiguredKey)
+        } catch {
+            // Leave the marker unset so a later launch can retry a transient
+            // registration failure. macOS may still require user approval.
+            print("Failed to enable Launch at Login by default: \(error)")
+        }
     }
 
     private func ensureSingleInstance() -> Bool {
@@ -1305,9 +1464,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifi
         killCaffeinate()
     }
 
-    private var canDeliverNotifications: Bool {
+    private var systemAllowsNotifications: Bool {
         notificationAuthorizationStatus == .authorized
             || notificationAuthorizationStatus == .provisional
+    }
+
+    private var canDeliverNotifications: Bool {
+        notificationsEnabled && systemAllowsNotifications
     }
 
     func requestNotificationPermission() {
@@ -1345,6 +1508,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifi
 
             self.notificationAuthorizationStatus = status
             self.notificationAuthorizationResolved = true
+
+            if status == .denied && self.notificationsEnabled {
+                self.notificationsEnabled = false
+                UserDefaults.standard.set(false, forKey: self.notificationsEnabledKey)
+            }
             self.updateNotificationMenuItem()
 
             guard self.canDeliverNotifications else {
@@ -1363,20 +1531,16 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifi
         }
     }
 
-    private func notificationMenuTitle() -> String {
-        guard notificationAuthorizationResolved else {
-            return L10n.notificationsWaiting
-        }
-        return canDeliverNotifications ? L10n.notificationsEnabled : L10n.notificationsDisabled
-    }
-
     private func updateNotificationMenuItem() {
-        statusItem?.menu?.item(withTag: 104)?.title = notificationMenuTitle()
+        notificationMenuView.isOn = canDeliverNotifications
     }
 
     func constructMenu() {
         let menu = NSMenu()
         menu.autoenablesItems = false
+        // Stateful rows draw a fixed trailing checkmark instead of using
+        // AppKit's leading state column.
+        menu.showsStateColumn = false
         menu.delegate = self
 
         // ── Custom toggle switch ──
@@ -1421,28 +1585,54 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifi
         menu.addItem(durationMenuItem)
 
         // ── Blackout Mode toggle (disabled by default when Sleep is active) ──
-        let blackoutItem = NSMenuItem(title: L10n.blackoutMode, action: #selector(toggleBlackoutMode(_:)), keyEquivalent: "")
+        let blackoutItem = NSMenuItem(title: L10n.blackoutMode, action: nil, keyEquivalent: "")
         blackoutItem.tag = 102
         blackoutItem.isEnabled = false
+        blackoutMenuView.isItemEnabled = false
+        blackoutMenuView.onActivate = { [weak self] in
+            guard let self = self else { return }
+            self.toggleBlackoutMode(blackoutItem)
+        }
+        blackoutItem.view = blackoutMenuView
         menu.addItem(blackoutItem)
 
         menu.addItem(NSMenuItem.separator())
 
         // ── About & Quit ──
-        let launchAtLoginItem = NSMenuItem(title: L10n.launchAtLogin, action: #selector(toggleLaunchAtLogin(_:)), keyEquivalent: "")
+        let launchAtLoginItem = NSMenuItem(title: L10n.launchAtLogin, action: nil, keyEquivalent: "")
         launchAtLoginItem.tag = 103
+        launchAtLoginMenuView.onActivate = { [weak self] in
+            guard let self = self else { return }
+            self.toggleLaunchAtLogin(launchAtLoginItem)
+        }
+        launchAtLoginItem.view = launchAtLoginMenuView
         menu.addItem(launchAtLoginItem)
 
-        let notificationItem = NSMenuItem(title: notificationMenuTitle(), action: #selector(openNotificationSettings(_:)), keyEquivalent: "")
+        let notificationItem = NSMenuItem(title: L10n.notifications, action: nil, keyEquivalent: "")
         notificationItem.tag = 104
+        notificationMenuView.isOn = canDeliverNotifications
+        notificationMenuView.onActivate = { [weak self] in
+            guard let self = self else { return }
+            self.toggleNotifications(notificationItem)
+        }
+        notificationItem.view = notificationMenuView
         menu.addItem(notificationItem)
 
-        let aboutItem = NSMenuItem(title: L10n.aboutKeepAwake, action: #selector(openAppInfo(_:)), keyEquivalent: "")
-        aboutItem.image = nil // Ensure no system icon is added
+        let aboutItem = NSMenuItem(title: L10n.aboutKeepAwake, action: nil, keyEquivalent: "")
         aboutItem.isEnabled = true
+        aboutMenuView.onActivate = { [weak self] in
+            guard let self = self else { return }
+            self.openAppInfo(aboutItem)
+        }
+        aboutItem.view = aboutMenuView
         menu.addItem(aboutItem)
-        let quitItem = NSMenuItem(title: L10n.quit, action: #selector(quitApp(_:)), keyEquivalent: "q")
+        let quitItem = NSMenuItem(title: L10n.quit, action: nil, keyEquivalent: "")
         quitItem.isEnabled = true
+        quitMenuView.onActivate = { [weak self] in
+            guard let self = self else { return }
+            self.quitApp(quitItem)
+        }
+        quitItem.view = quitMenuView
         menu.addItem(quitItem)
 
         statusItem.menu = menu
@@ -1459,9 +1649,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifi
         }
         if let blackoutItem = menu.item(withTag: 102) {
             blackoutItem.isEnabled = isCoffeeActive
+            blackoutMenuView.isItemEnabled = isCoffeeActive
+            blackoutMenuView.isOn = isBlackoutModeActive
         }
         if let launchAtLoginItem = menu.item(withTag: 103) {
-            launchAtLoginItem.state = SMAppService.mainApp.status == .enabled ? .on : .off
+            launchAtLoginItem.isEnabled = true
+            launchAtLoginMenuView.isOn = SMAppService.mainApp.status == .enabled
         }
     }
 
@@ -1480,8 +1673,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifi
         }
         if let blackoutItem = statusItem.menu?.item(withTag: 102) {
             blackoutItem.isEnabled = isActive
+            blackoutMenuView.isItemEnabled = isActive
             if !isActive {
-                blackoutItem.state = .off
+                blackoutMenuView.isOn = false
             }
         }
     }
@@ -1566,7 +1760,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifi
         }
 
         if let blackoutItem = statusItem.menu?.item(withTag: 102) {
-            blackoutItem.state = .on
+            blackoutItem.isEnabled = true
+            blackoutMenuView.isItemEnabled = true
+            blackoutMenuView.isOn = true
         }
 
         showNotification(
@@ -1583,8 +1779,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifi
         BrightnessManager.shared.restoreAllDisplays()
         stopBlackoutWatchdog()
 
-        if let blackoutItem = statusItem.menu?.item(withTag: 102) {
-            blackoutItem.state = .off
+        if statusItem.menu?.item(withTag: 102) != nil {
+            blackoutMenuView.isOn = false
         }
 
         if notify {
@@ -1832,6 +2028,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifi
     }
 
     func showNotification(title: String, body: String) {
+        guard notificationsEnabled else {
+            print("Notification skipped because notifications are turned off: \(title)")
+            return
+        }
+
         guard notificationAuthorizationResolved else {
             pendingNotifications.append((title: title, body: body))
             print("Notification queued until authorization is resolved: \(title)")
@@ -1862,14 +2063,59 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifi
         print("Notification - \(title): \(body)")
     }
 
-    @objc func openNotificationSettings(_ sender: NSMenuItem) {
-        let settingsURLs = [
-            "x-apple.systempreferences:com.apple.Notifications-Settings",
-            "x-apple.systempreferences:com.apple.preference.notifications"
-        ].compactMap(URL.init(string:))
-
-        for url in settingsURLs where NSWorkspace.shared.open(url) {
+    @objc func toggleNotifications(_ sender: NSMenuItem) {
+        if notificationsEnabled {
+            notificationsEnabled = false
+            UserDefaults.standard.set(false, forKey: notificationsEnabledKey)
+            pendingNotifications.removeAll()
+            updateNotificationMenuItem()
             return
+        }
+
+        notificationCenter.getNotificationSettings { [weak self] settings in
+            guard let self = self else { return }
+
+            switch settings.authorizationStatus {
+            case .authorized, .provisional:
+                DispatchQueue.main.async {
+                    self.notificationAuthorizationStatus = settings.authorizationStatus
+                    self.notificationAuthorizationResolved = true
+                    self.notificationsEnabled = true
+                    UserDefaults.standard.set(true, forKey: self.notificationsEnabledKey)
+                    self.updateNotificationMenuItem()
+                }
+            case .notDetermined:
+                self.notificationCenter.requestAuthorization(options: [.alert, .sound]) { [weak self] granted, error in
+                    if let error = error {
+                        print("Notification authorization error: \(error)")
+                    }
+
+                    self?.notificationCenter.getNotificationSettings { [weak self] updatedSettings in
+                        DispatchQueue.main.async {
+                            guard let self = self else { return }
+                            self.notificationAuthorizationStatus = updatedSettings.authorizationStatus
+                            self.notificationAuthorizationResolved = true
+                            self.notificationsEnabled = granted
+                                && (updatedSettings.authorizationStatus == .authorized
+                                    || updatedSettings.authorizationStatus == .provisional)
+                            UserDefaults.standard.set(
+                                self.notificationsEnabled,
+                                forKey: self.notificationsEnabledKey
+                            )
+                            self.updateNotificationMenuItem()
+                        }
+                    }
+                }
+            default:
+                DispatchQueue.main.async {
+                    self.notificationAuthorizationStatus = settings.authorizationStatus
+                    self.notificationAuthorizationResolved = true
+                    self.notificationsEnabled = false
+                    UserDefaults.standard.set(false, forKey: self.notificationsEnabledKey)
+                    self.updateNotificationMenuItem()
+                    print("Notifications remain off because macOS permission is unavailable")
+                }
+            }
         }
     }
 
@@ -1895,6 +2141,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifi
             } else {
                 try SMAppService.mainApp.register()
             }
+            UserDefaults.standard.set(true, forKey: launchAtLoginConfiguredKey)
         } catch {
             print("Failed to toggle Launch at Login: \(error)")
         }
