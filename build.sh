@@ -91,8 +91,12 @@ if [ -n "${CODESIGN_IDENTITY:-}" ]; then
     codesign --force --deep --options runtime --timestamp \
         --sign "${CODESIGN_IDENTITY}" "${APP_DIR}"
 else
-    # Ad-hoc signing keeps source builds runnable without a local certificate.
-    codesign --force --deep --sign - "${APP_DIR}"
+    # Give local ad-hoc builds a stable designated requirement. Without this,
+    # each rebuild is identified only by a new CDHash and macOS TCC permissions
+    # appear enabled for the old binary while being unavailable to the new one.
+    AD_HOC_REQUIREMENT='=designated => identifier "com.khalil.keepawake"'
+    codesign --force --deep --sign - \
+        --requirements "${AD_HOC_REQUIREMENT}" "${APP_DIR}"
 fi
 
 # codesign may recreate Finder metadata on the outer .app directory. Remove it

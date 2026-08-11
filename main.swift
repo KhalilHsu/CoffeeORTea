@@ -605,7 +605,8 @@ class InputMonitor {
     private var cumulativeDistance: CGFloat = 0.0
     private var distanceWindowStart: Date = Date()
     private var keyPressTimestamps: [Date] = []
-    private var keyEventMonitor: Any?
+    private var keyEventTap: CFMachPort?
+    private var keyEventRunLoopSource: CFRunLoopSource?
     private var onTrigger: (() -> Void)?
 
     private let distanceThreshold: CGFloat = 500.0
@@ -627,9 +628,7 @@ class InputMonitor {
             self?.checkMousePosition()
         }
 
-        keyEventMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] _ in
-            self?.handleKeyPress()
-        }
+        startKeyboardMonitoring()
 
         print("InputMonitor: Started")
     }
@@ -637,13 +636,70 @@ class InputMonitor {
     func stopMonitoring() {
         mouseCheckTimer?.invalidate()
         mouseCheckTimer = nil
-        if let monitor = keyEventMonitor {
-            NSEvent.removeMonitor(monitor)
-            keyEventMonitor = nil
+        if let source = keyEventRunLoopSource {
+            CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes)
+            keyEventRunLoopSource = nil
+        }
+        if let tap = keyEventTap {
+            CGEvent.tapEnable(tap: tap, enable: false)
+            CFMachPortInvalidate(tap)
+            keyEventTap = nil
         }
         cumulativeDistance = 0.0
         keyPressTimestamps = []
         onTrigger = nil
+    }
+
+    private func startKeyboardMonitoring() {
+        guard CGPreflightListenEventAccess() else {
+            print("InputMonitor: Keyboard monitoring unavailable without Input Monitoring permission")
+            return
+        }
+
+        let keyDownMask = CGEventMask(1) << CGEventType.keyDown.rawValue
+        let context = Unmanaged.passUnretained(self).toOpaque()
+        guard let tap = CGEvent.tapCreate(
+            tap: .cgSessionEventTap,
+            place: .headInsertEventTap,
+            options: .listenOnly,
+            eventsOfInterest: keyDownMask,
+            callback: Self.keyboardEventCallback,
+            userInfo: context
+        ) else {
+            print("InputMonitor: Failed to create keyboard event tap")
+            return
+        }
+
+        guard let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0) else {
+            CFMachPortInvalidate(tap)
+            print("InputMonitor: Failed to create keyboard event run-loop source")
+            return
+        }
+
+        keyEventTap = tap
+        keyEventRunLoopSource = source
+        CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
+        CGEvent.tapEnable(tap: tap, enable: true)
+    }
+
+    private static let keyboardEventCallback: CGEventTapCallBack = {
+        _, eventType, event, userInfo in
+        guard let userInfo else {
+            return Unmanaged.passUnretained(event)
+        }
+
+        let monitor = Unmanaged<InputMonitor>.fromOpaque(userInfo).takeUnretainedValue()
+        switch eventType {
+        case .keyDown:
+            monitor.handleKeyPress()
+        case .tapDisabledByTimeout, .tapDisabledByUserInput:
+            if let tap = monitor.keyEventTap {
+                CGEvent.tapEnable(tap: tap, enable: true)
+            }
+        default:
+            break
+        }
+        return Unmanaged.passUnretained(event)
     }
 
     private func checkMousePosition() {
@@ -848,6 +904,12 @@ struct L10n {
     // MARK: - Menu Items
     static var setDuration: String { localized("Set Duration", zh: "设置时长") }
     static var blackoutMode: String { localized("Blackout Mode (Energy Saving)", zh: "息屏模式（省电）") }
+    static var keyboardRestorePermissionRequired: String {
+        localized("Keyboard restore: Permission required…", zh: "键盘恢复：需要授权…")
+    }
+    static var keyboardRestoreRestartRequired: String {
+        localized("Keyboard restore: Restart to apply…", zh: "键盘恢复：点击重启以应用授权…")
+    }
     static var launchAtLogin: String { localized("Launch at Login", zh: "开机启动") }
     static var notifications: String { localized("Notifications", zh: "通知") }
     static var aboutKeepAwake: String { localized("About KeepAwake", zh: "关于 KeepAwake") }
@@ -869,6 +931,18 @@ struct L10n {
     static var blackoutAutoRestoredBody: String { localized("Screens restored due to detected user input.", zh: "检测到用户输入，屏幕已恢复。") }
     static var blackoutDeactivatedTitle: String { localized("Blackout Mode Deactivated", zh: "息屏模式已关闭") }
     static var blackoutDeactivatedBody: String { localized("Screen brightness restored.", zh: "屏幕亮度已恢复。") }
+    static var keyboardRestorePermissionTitle: String {
+        localized("Allow Keyboard Restore?", zh: "允许按键恢复屏幕？")
+    }
+    static var keyboardRestorePermissionBody: String {
+        localized(
+            "When Blackout Mode is active, KeepAwake can restore your displays after three key presses. It only counts key presses and never reads, stores, or uploads which keys you press.",
+            zh: "息屏模式开启后，连续按键 3 次可以恢复屏幕。KeepAwake 只统计按键次数，不会读取、保存或上传具体按键内容。"
+        )
+    }
+    static var openSystemSettings: String { localized("Open System Settings", zh: "打开系统设置") }
+    static var useMouseOnly: String { localized("Use Mouse Only", zh: "仅使用鼠标恢复") }
+    static var cancel: String { localized("Cancel", zh: "取消") }
     static var activatedTitle: String { localized("Keep Awake Activated", zh: "保持唤醒已激活") }
     static func activatedBody(duration: String) -> String { localized("Mac will stay awake: \(duration)", zh: "Mac 将保持唤醒：\(duration)") }
     static var deactivatedTitle: String { localized("Keep Awake Deactivated", zh: "保持唤醒已关闭") }
@@ -1241,7 +1315,9 @@ class DurationSliderMenuItemView: NSHostingView<DurationSliderMenuView> {
 // MARK: - TrailingCheckMenuItemView (AppKit)
 
 final class TrailingCheckMenuItemView: NSView {
-    let rowTitle: String
+    var rowTitle: String {
+        didSet { needsDisplay = true }
+    }
     let showsIndicator: Bool
     var onActivate: (() -> Void)?
 
@@ -1294,6 +1370,10 @@ final class TrailingCheckMenuItemView: NSView {
         }
         enclosingMenuItem?.menu?.cancelTracking()
         onActivate?()
+    }
+
+    func resetInteractionState() {
+        isHovered = false
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -1358,6 +1438,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifi
     private let notificationCenter = UNUserNotificationCenter.current()
     private let notificationsEnabledKey = "notificationsEnabled"
     private let launchAtLoginConfiguredKey = "launchAtLoginConfigured"
+    private let blackoutPermissionExplainedKey = "blackoutPermissionExplained"
+    private let blackoutMouseOnlyAcceptedKey = "blackoutMouseOnlyAccepted"
+    private let keyboardPermissionRestartPendingKey = "keyboardPermissionRestartPending"
     private var notificationAuthorizationStatus: UNAuthorizationStatus = .notDetermined
     private var notificationAuthorizationResolved = false
     private var pendingNotifications: [(title: String, body: String)] = []
@@ -1375,6 +1458,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifi
     let blackoutMenuView = TrailingCheckMenuItemView(
         title: L10n.blackoutMode,
         showsIndicator: true
+    )
+    let keyboardRestorePermissionMenuView = TrailingCheckMenuItemView(
+        title: L10n.keyboardRestorePermissionRequired,
+        showsIndicator: false
     )
     let launchAtLoginMenuView = TrailingCheckMenuItemView(
         title: L10n.launchAtLogin,
@@ -1405,6 +1492,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifi
 
     func applicationDidFinishLaunching(_ aNotification: Notification) {
         guard ensureSingleInstance() else { return }
+
+        // Input Monitoring changes apply to a newly launched process. A fresh
+        // launch has consumed any pending "restart to apply" state, whether
+        // the user granted the permission or chose not to.
+        UserDefaults.standard.removeObject(forKey: keyboardPermissionRestartPendingKey)
 
         configureDefaultLaunchAtLogin()
 
@@ -1596,6 +1688,19 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifi
         blackoutItem.view = blackoutMenuView
         menu.addItem(blackoutItem)
 
+        let keyboardRestorePermissionItem = NSMenuItem(
+            title: L10n.keyboardRestorePermissionRequired,
+            action: nil,
+            keyEquivalent: ""
+        )
+        keyboardRestorePermissionItem.tag = 105
+        keyboardRestorePermissionItem.isHidden = true
+        keyboardRestorePermissionMenuView.onActivate = { [weak self] in
+            self?.handleKeyboardRestorePermissionAction()
+        }
+        keyboardRestorePermissionItem.view = keyboardRestorePermissionMenuView
+        menu.addItem(keyboardRestorePermissionItem)
+
         menu.addItem(NSMenuItem.separator())
 
         // ── About & Quit ──
@@ -1639,6 +1744,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifi
     }
 
     func menuWillOpen(_ menu: NSMenu) {
+        resetMenuInteractionState()
         refreshWakeStatus()
         refreshNotificationAuthorizationStatus()
         let isCoffeeActive = isKeepAwakeActive
@@ -1652,10 +1758,24 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifi
             blackoutMenuView.isItemEnabled = isCoffeeActive
             blackoutMenuView.isOn = isBlackoutModeActive
         }
+        updateKeyboardRestorePermissionMenuItem(in: menu)
         if let launchAtLoginItem = menu.item(withTag: 103) {
             launchAtLoginItem.isEnabled = true
             launchAtLoginMenuView.isOn = SMAppService.mainApp.status == .enabled
         }
+    }
+
+    func menuDidClose(_ menu: NSMenu) {
+        resetMenuInteractionState()
+    }
+
+    private func resetMenuInteractionState() {
+        blackoutMenuView.resetInteractionState()
+        keyboardRestorePermissionMenuView.resetInteractionState()
+        launchAtLoginMenuView.resetInteractionState()
+        notificationMenuView.resetInteractionState()
+        aboutMenuView.resetInteractionState()
+        quitMenuView.resetInteractionState()
     }
 
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
@@ -1729,6 +1849,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifi
     func enableBlackoutMode() {
         guard !isBlackoutModeActive else { return }
 
+        guard confirmKeyboardRestorePermissionIfNeeded() else { return }
+
         if !isKeepAwakeActive {
             activate()
             guard isKeepAwakeActive else { return }
@@ -1769,6 +1891,102 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifi
             title: L10n.blackoutActivatedTitle,
             body: L10n.blackoutActivatedBody
         )
+    }
+
+    private var hasKeyboardRestorePermission: Bool {
+        CGPreflightListenEventAccess()
+    }
+
+    private func confirmKeyboardRestorePermissionIfNeeded() -> Bool {
+        if hasKeyboardRestorePermission {
+            return true
+        }
+
+        let defaults = UserDefaults.standard
+        if defaults.bool(forKey: blackoutMouseOnlyAcceptedKey) {
+            return true
+        }
+
+        defaults.set(true, forKey: blackoutPermissionExplainedKey)
+        updateKeyboardRestorePermissionMenuItem(in: statusItem.menu)
+
+        let alert = NSAlert()
+        alert.icon = NSApplication.shared.applicationIconImage
+        alert.messageText = L10n.keyboardRestorePermissionTitle
+        alert.informativeText = L10n.keyboardRestorePermissionBody
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: L10n.openSystemSettings)
+        alert.addButton(withTitle: L10n.useMouseOnly)
+        alert.addButton(withTitle: L10n.cancel)
+
+        switch alert.runModal() {
+        case .alertFirstButtonReturn:
+            openKeyboardInputSettings()
+            return false
+        case .alertSecondButtonReturn:
+            defaults.set(true, forKey: blackoutMouseOnlyAcceptedKey)
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func updateKeyboardRestorePermissionMenuItem(in menu: NSMenu?) {
+        guard let item = menu?.item(withTag: 105) else { return }
+        let defaults = UserDefaults.standard
+        let shouldShow = !hasKeyboardRestorePermission
+            && defaults.bool(forKey: blackoutPermissionExplainedKey)
+        keyboardRestorePermissionMenuView.rowTitle = defaults.bool(
+            forKey: keyboardPermissionRestartPendingKey
+        ) ? L10n.keyboardRestoreRestartRequired : L10n.keyboardRestorePermissionRequired
+        item.isHidden = !shouldShow
+        item.isEnabled = shouldShow
+        keyboardRestorePermissionMenuView.isItemEnabled = shouldShow
+    }
+
+    private func handleKeyboardRestorePermissionAction() {
+        if UserDefaults.standard.bool(forKey: keyboardPermissionRestartPendingKey) {
+            restartApp()
+        } else {
+            openKeyboardInputSettings()
+        }
+    }
+
+    private func openKeyboardInputSettings() {
+        let defaults = UserDefaults.standard
+        defaults.set(true, forKey: blackoutPermissionExplainedKey)
+
+        if CGRequestListenEventAccess() {
+            defaults.removeObject(forKey: keyboardPermissionRestartPendingKey)
+            updateKeyboardRestorePermissionMenuItem(in: statusItem.menu)
+            return
+        }
+
+        defaults.set(true, forKey: keyboardPermissionRestartPendingKey)
+        updateKeyboardRestorePermissionMenuItem(in: statusItem.menu)
+
+        guard let settingsURL = URL(
+            string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent"
+        ) else { return }
+        NSWorkspace.shared.open(settingsURL)
+    }
+
+    private func restartApp() {
+        let relauncher = Process()
+        relauncher.executableURL = URL(fileURLWithPath: "/bin/sh")
+        relauncher.arguments = [
+            "-c",
+            "sleep 1; /usr/bin/open \"$1\"",
+            "keepawake-relaunch",
+            Bundle.main.bundlePath
+        ]
+
+        do {
+            try relauncher.run()
+            NSApplication.shared.terminate(nil)
+        } catch {
+            print("KeepAwake: failed to relaunch after permission change: \(error)")
+        }
     }
 
     func disableBlackoutMode(autoRestored: Bool = false, notify: Bool = true) {
