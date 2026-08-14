@@ -1329,10 +1329,6 @@ final class TrailingCheckMenuItemView: NSView {
         didSet { needsDisplay = true }
     }
 
-    private var isHovered = false {
-        didSet { needsDisplay = true }
-    }
-
     init(title: String, showsIndicator: Bool) {
         self.rowTitle = title
         self.showsIndicator = showsIndicator
@@ -1341,27 +1337,6 @@ final class TrailingCheckMenuItemView: NSView {
 
     @MainActor required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
-    }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        for area in trackingAreas {
-            removeTrackingArea(area)
-        }
-        addTrackingArea(NSTrackingArea(
-            rect: bounds,
-            options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
-            owner: self,
-            userInfo: nil
-        ))
-    }
-
-    override func mouseEntered(with event: NSEvent) {
-        isHovered = true
-    }
-
-    override func mouseExited(with event: NSEvent) {
-        isHovered = false
     }
 
     override func mouseUp(with event: NSEvent) {
@@ -1373,13 +1348,13 @@ final class TrailingCheckMenuItemView: NSView {
     }
 
     func resetInteractionState() {
-        isHovered = false
+        needsDisplay = true
     }
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
 
-        let isHighlighted = isHovered || enclosingMenuItem?.isHighlighted == true
+        let isHighlighted = enclosingMenuItem?.isHighlighted == true
         if isHighlighted && isItemEnabled {
             NSColor.controlAccentColor.setFill()
             NSBezierPath(
