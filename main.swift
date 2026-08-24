@@ -859,18 +859,54 @@ final class SystemPowerStateReader {
 
 // MARK: - Localization (i18n)
 
+enum AppLanguageSetting: String, CaseIterable {
+    case system = "system"
+    case en = "en"
+    case zh = "zh"
+
+    var localizedName: String {
+        switch self {
+        case .system: return L10n.languageSystem
+        case .en: return "English"
+        case .zh: return "简体中文"
+        }
+    }
+}
+
 enum Language: String {
     case en, zh
 }
 
 struct L10n {
-    static let current: Language = {
-        let preferred = Locale.preferredLanguages.first ?? "en"
-        if preferred.hasPrefix("zh") {
+    static let languageSettingKey = "appLanguageSetting"
+
+    static var currentSetting: AppLanguageSetting {
+        get {
+            if let saved = UserDefaults.standard.string(forKey: languageSettingKey),
+               let setting = AppLanguageSetting(rawValue: saved) {
+                return setting
+            }
+            return .system
+        }
+        set {
+            UserDefaults.standard.set(newValue.rawValue, forKey: languageSettingKey)
+        }
+    }
+
+    static var current: Language {
+        switch currentSetting {
+        case .system:
+            let preferred = Locale.preferredLanguages.first ?? "en"
+            if preferred.hasPrefix("zh") {
+                return .zh
+            }
+            return .en
+        case .en:
+            return .en
+        case .zh:
             return .zh
         }
-        return .en
-    }()
+    }
 
     static var appVersion: String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.2.0"
@@ -912,6 +948,8 @@ struct L10n {
     }
     static var launchAtLogin: String { localized("Launch at Login", zh: "开机启动") }
     static var notifications: String { localized("Notifications", zh: "通知") }
+    static var language: String { localized("Language", zh: "语言") }
+    static var languageSystem: String { localized("Follow System", zh: "跟随系统") }
     static var aboutKeepAwake: String { localized("About KeepAwake", zh: "关于 KeepAwake") }
     static var quit: String { localized("Quit", zh: "退出") }
     
@@ -1055,6 +1093,7 @@ struct CustomToggle: View {
 class ToggleMenuState: ObservableObject {
     @Published var isOn: Bool = false
     @Published var statusText: String = ""
+    @Published var updateCounter: Int = 0
     var onToggle: ((Bool) -> Void)?
 }
 
@@ -1062,7 +1101,8 @@ struct ToggleMenuView: View {
     @ObservedObject var state: ToggleMenuState
     
     var body: some View {
-        VStack(spacing: 4) {
+        _ = state.updateCounter
+        return VStack(spacing: 4) {
             HStack {
                 Text(L10n.sleepLabel)
                     .font(.system(size: 13, weight: .medium))
@@ -1225,6 +1265,7 @@ struct CustomDiscreteSlider: View {
 class DurationSliderState: ObservableObject {
     @Published var selectedDuration: DurationOption = .indefinitely
     @Published var isEnabled: Bool = true
+    @Published var updateCounter: Int = 0
     var onDurationChanged: ((DurationOption) -> Void)?
 }
 
@@ -1233,7 +1274,8 @@ struct DurationSliderMenuView: View {
     @State private var isEditing: Bool = false
     
     var body: some View {
-        VStack(spacing: 4) {
+        _ = state.updateCounter
+        return VStack(spacing: 4) {
             HStack {
                 Text(L10n.setDuration)
                     .font(.system(size: 13, weight: .medium))
@@ -1329,10 +1371,10 @@ final class TrailingCheckMenuItemView: NSView {
         didSet { needsDisplay = true }
     }
 
-    init(title: String, showsIndicator: Bool) {
+    init(title: String, showsIndicator: Bool, width: CGFloat = 280) {
         self.rowTitle = title
         self.showsIndicator = showsIndicator
-        super.init(frame: NSRect(x: 0, y: 0, width: 280, height: 24))
+        super.init(frame: NSRect(x: 0, y: 0, width: width, height: 24))
     }
 
     @MainActor required init?(coder: NSCoder) {
@@ -1454,6 +1496,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifi
         title: L10n.quit,
         showsIndicator: false
     )
+    private var languageMenuItem: NSMenuItem?
+    private var languageSubmenu: NSMenu?
+    private var languageSubmenuViews: [AppLanguageSetting: TrailingCheckMenuItemView] = [:]
 
     // Blackout Mode state
     var isBlackoutModeActive: Bool = false
@@ -1698,6 +1743,37 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifi
         notificationItem.view = notificationMenuView
         menu.addItem(notificationItem)
 
+        // ── Language Submenu ──
+        let langItem = NSMenuItem(title: L10n.language, action: nil, keyEquivalent: "")
+        langItem.tag = 106
+        let langSubmenu = NSMenu(title: L10n.language)
+        langSubmenu.autoenablesItems = false
+        langSubmenu.showsStateColumn = false
+
+        languageSubmenuViews.removeAll()
+        for setting in AppLanguageSetting.allCases {
+            let item = NSMenuItem()
+            let view = TrailingCheckMenuItemView(
+                title: setting.localizedName,
+                showsIndicator: true,
+                width: 150
+            )
+            view.isOn = (setting == L10n.currentSetting)
+            view.onActivate = { [weak self] in
+                self?.handleLanguageSelection(setting)
+            }
+            item.view = view
+            languageSubmenuViews[setting] = view
+            langSubmenu.addItem(item)
+            if setting == .system {
+                langSubmenu.addItem(NSMenuItem.separator())
+            }
+        }
+        langItem.submenu = langSubmenu
+        self.languageMenuItem = langItem
+        self.languageSubmenu = langSubmenu
+        menu.addItem(langItem)
+
         let aboutItem = NSMenuItem(title: L10n.aboutKeepAwake, action: nil, keyEquivalent: "")
         aboutItem.isEnabled = true
         aboutMenuView.onActivate = { [weak self] in
@@ -1738,6 +1814,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifi
             launchAtLoginItem.isEnabled = true
             launchAtLoginMenuView.isOn = SMAppService.mainApp.status == .enabled
         }
+        for (setting, view) in languageSubmenuViews {
+            view.rowTitle = setting.localizedName
+            view.isOn = (setting == L10n.currentSetting)
+        }
     }
 
     func menuDidClose(_ menu: NSMenu) {
@@ -1751,6 +1831,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifi
         notificationMenuView.resetInteractionState()
         aboutMenuView.resetInteractionState()
         quitMenuView.resetInteractionState()
+        for (_, view) in languageSubmenuViews {
+            view.resetInteractionState()
+        }
     }
 
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
@@ -2337,6 +2420,50 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifi
             UserDefaults.standard.set(true, forKey: launchAtLoginConfiguredKey)
         } catch {
             print("Failed to toggle Launch at Login: \(error)")
+        }
+    }
+
+    func handleLanguageSelection(_ setting: AppLanguageSetting) {
+        guard setting != L10n.currentSetting else { return }
+
+        L10n.currentSetting = setting
+        updateLanguageUI()
+    }
+
+    private func updateLanguageUI() {
+        // 1. Update language submenu
+        languageMenuItem?.title = L10n.language
+        for (setting, view) in languageSubmenuViews {
+            view.rowTitle = setting.localizedName
+            view.isOn = (setting == L10n.currentSetting)
+        }
+
+        // 2. Update SwiftUI views
+        toggleView.state.updateCounter += 1
+        durationSliderView.state.updateCounter += 1
+
+        // 3. Update AppKit menu rows
+        blackoutMenuView.rowTitle = L10n.blackoutMode
+        updateKeyboardRestorePermissionMenuItem(in: statusItem.menu)
+        launchAtLoginMenuView.rowTitle = L10n.launchAtLogin
+        notificationMenuView.rowTitle = L10n.notifications
+        aboutMenuView.rowTitle = L10n.aboutKeepAwake
+        quitMenuView.rowTitle = L10n.quit
+
+        // 4. Update toggle status text
+        if isKeepAwakeActive {
+            if let process = caffeinateProcess, process.isRunning {
+                if let end = endTime {
+                    let remaining = end.timeIntervalSinceNow
+                    if remaining > 0 {
+                        updateTitle(remaining: remaining)
+                    }
+                } else {
+                    toggleView.statusText = L10n.indefinitely
+                }
+            }
+        } else {
+            refreshWakeStatus()
         }
     }
 }
