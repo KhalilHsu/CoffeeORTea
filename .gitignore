@@ -9,3 +9,4 @@ build_cache/
 .env
 .env.*
 !.env.example
+log/

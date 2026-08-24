@@ -1378,6 +1378,171 @@ class DurationSliderMenuItemView: NSHostingView<DurationSliderMenuView> {
     }
 }
 
+// MARK: - Blackout Mode Hover Tooltip
+
+struct BlackoutTooltipContentView: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text("黑屏省电，后台任务与 Agent 不中断。")
+                .font(.system(size: 11.5, weight: .medium))
+                .foregroundColor(.primary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Text("晃动鼠标或连按 3 次按键即可点亮。")
+                .font(.system(size: 10.5))
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
+        .frame(width: 210)
+    }
+}
+
+final class BlackoutTooltipManager {
+    static let shared = BlackoutTooltipManager()
+    private var window: NSPanel?
+    private var timer: Timer?
+    private var monitorTimer: Timer?
+    private weak var targetView: NSView?
+
+    func schedule(relativeTo view: NSView) {
+        cancel()
+        guard L10n.current == .zh else { return }
+        self.targetView = view
+
+        let t = Timer(timeInterval: 0.25, repeats: false) { [weak self, weak view] _ in
+            guard let self = self, let view = view, let win = view.window else { return }
+
+            let rectInWindow = view.convert(view.bounds, to: nil)
+            let screenRect = win.convertToScreen(rectInWindow)
+            let mouseLoc = NSEvent.mouseLocation
+
+            // Only show if mouse is currently inside view bounds and highlighted
+            guard screenRect.contains(mouseLoc),
+                  view.enclosingMenuItem?.isHighlighted == true else {
+                return
+            }
+
+            self.show(relativeTo: view, screenRect: screenRect, mouseLoc: mouseLoc)
+        }
+        RunLoop.main.add(t, forMode: .common)
+        self.timer = t
+    }
+
+    func cancel() {
+        timer?.invalidate()
+        timer = nil
+        monitorTimer?.invalidate()
+        monitorTimer = nil
+        if let win = window {
+            win.orderOut(nil)
+            window = nil
+        }
+        targetView = nil
+    }
+
+    private func show(relativeTo view: NSView, screenRect: NSRect, mouseLoc: NSPoint) {
+        let panelWidth: CGFloat = 200
+        let panelHeight: CGFloat = 46
+
+        let screen = NSScreen.screens.first(where: { $0.frame.contains(mouseLoc) }) ?? NSScreen.main
+        let visibleFrame = screen?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1920, height: 1080)
+
+        // Native macOS Tooltip position: offset under the cursor pointer
+        var panelX = mouseLoc.x + 2
+        var panelY = mouseLoc.y - panelHeight - 14
+
+        // Keep horizontally on screen
+        if panelX + panelWidth > visibleFrame.maxX - 8 {
+            panelX = visibleFrame.maxX - panelWidth - 8
+        }
+        if panelX < visibleFrame.minX + 8 {
+            panelX = visibleFrame.minX + 8
+        }
+
+        // If below screen bottom, flip to above cursor
+        if panelY < visibleFrame.minY + 8 {
+            panelY = mouseLoc.y + 18
+        }
+
+        let panel = NSPanel(
+            contentRect: NSRect(x: panelX, y: panelY, width: panelWidth, height: panelHeight),
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.level = .popUpMenu + 1
+        panel.hasShadow = true
+        panel.isReleasedWhenClosed = false
+        panel.ignoresMouseEvents = true
+
+        let radius: CGFloat = 5
+        let visualEffect = NSVisualEffectView(frame: NSRect(x: 0, y: 0, width: panelWidth, height: panelHeight))
+        visualEffect.material = .toolTip
+        visualEffect.blendingMode = .withinWindow
+        visualEffect.state = .active
+        visualEffect.wantsLayer = true
+        visualEffect.layer?.cornerRadius = radius
+        visualEffect.layer?.masksToBounds = true
+        visualEffect.layer?.borderWidth = 0.5
+        visualEffect.layer?.borderColor = NSColor.separatorColor.withAlphaComponent(0.3).cgColor
+
+        // Labels matching native tooltip typography
+        let label1 = NSTextField(labelWithString: "黑屏省电，后台任务与 Agent 不中断。")
+        label1.font = NSFont.systemFont(ofSize: 11, weight: .regular)
+        label1.textColor = .labelColor
+        label1.maximumNumberOfLines = 0
+        label1.preferredMaxLayoutWidth = panelWidth - 16
+        label1.lineBreakMode = .byWordWrapping
+
+        let label2 = NSTextField(labelWithString: "晃动鼠标或连按 3 次按键即可点亮。")
+        label2.font = NSFont.systemFont(ofSize: 10, weight: .regular)
+        label2.textColor = .secondaryLabelColor
+        label2.maximumNumberOfLines = 0
+        label2.preferredMaxLayoutWidth = panelWidth - 16
+        label2.lineBreakMode = .byWordWrapping
+
+        let stack = NSStackView(views: [label1, label2])
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 2
+        stack.edgeInsets = NSEdgeInsets(top: 5, left: 8, bottom: 5, right: 8)
+        stack.translatesAutoresizingMaskIntoConstraints = false
+
+        visualEffect.addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.topAnchor.constraint(equalTo: visualEffect.topAnchor),
+            stack.bottomAnchor.constraint(equalTo: visualEffect.bottomAnchor),
+            stack.leadingAnchor.constraint(equalTo: visualEffect.leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: visualEffect.trailingAnchor)
+        ])
+
+        panel.contentView = visualEffect
+        panel.invalidateShadow()
+        panel.orderFront(nil)
+        self.window = panel
+
+        // Continuous heartbeat monitor to dismiss as soon as mouse leaves or row is no longer highlighted
+        let m = Timer(timeInterval: 0.04, repeats: true) { [weak self, weak view] _ in
+            guard let self = self, let view = view, let win = view.window else {
+                self?.cancel()
+                return
+            }
+            let rectInWin = view.convert(view.bounds, to: nil)
+            let sRect = win.convertToScreen(rectInWin)
+            let currentMouse = NSEvent.mouseLocation
+
+            if !sRect.contains(currentMouse) || view.enclosingMenuItem?.isHighlighted != true {
+                self.cancel()
+            }
+        }
+        RunLoop.main.add(m, forMode: .common)
+        self.monitorTimer = m
+    }
+}
+
 // MARK: - TrailingCheckMenuItemView (AppKit)
 
 final class TrailingCheckMenuItemView: NSView {
@@ -1386,6 +1551,8 @@ final class TrailingCheckMenuItemView: NSView {
     }
     let showsIndicator: Bool
     var onActivate: (() -> Void)?
+    var hasHoverPopover = false
+    private var wasHighlighted = false
 
     var isOn = false {
         didSet { needsDisplay = true }
@@ -1395,9 +1562,10 @@ final class TrailingCheckMenuItemView: NSView {
         didSet { needsDisplay = true }
     }
 
-    init(title: String, showsIndicator: Bool, width: CGFloat = 280) {
+    init(title: String, showsIndicator: Bool, width: CGFloat = 280, hasHoverPopover: Bool = false) {
         self.rowTitle = title
         self.showsIndicator = showsIndicator
+        self.hasHoverPopover = hasHoverPopover
         super.init(frame: NSRect(x: 0, y: 0, width: width, height: 24))
     }
 
@@ -1406,6 +1574,10 @@ final class TrailingCheckMenuItemView: NSView {
     }
 
     override func mouseUp(with event: NSEvent) {
+        wasHighlighted = false
+        if hasHoverPopover {
+            BlackoutTooltipManager.shared.cancel()
+        }
         guard isItemEnabled, bounds.contains(convert(event.locationInWindow, from: nil)) else {
             return
         }
@@ -1414,6 +1586,10 @@ final class TrailingCheckMenuItemView: NSView {
     }
 
     func resetInteractionState() {
+        wasHighlighted = false
+        if hasHoverPopover {
+            BlackoutTooltipManager.shared.cancel()
+        }
         needsDisplay = true
     }
 
@@ -1421,6 +1597,15 @@ final class TrailingCheckMenuItemView: NSView {
         super.draw(dirtyRect)
 
         let isHighlighted = enclosingMenuItem?.isHighlighted == true
+        if hasHoverPopover && isItemEnabled {
+            if isHighlighted && !wasHighlighted {
+                BlackoutTooltipManager.shared.schedule(relativeTo: self)
+            } else if !isHighlighted && wasHighlighted {
+                BlackoutTooltipManager.shared.cancel()
+            }
+            wasHighlighted = isHighlighted
+        }
+
         if isHighlighted && isItemEnabled {
             NSColor.controlAccentColor.setFill()
             NSBezierPath(
@@ -1498,7 +1683,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifi
     let durationSliderView = DurationSliderMenuItemView()
     let blackoutMenuView = TrailingCheckMenuItemView(
         title: L10n.blackoutMode,
-        showsIndicator: true
+        showsIndicator: true,
+        hasHoverPopover: true
     )
     let keyboardRestorePermissionMenuView = TrailingCheckMenuItemView(
         title: L10n.keyboardRestorePermissionRequired,
@@ -1844,7 +2030,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifi
         }
     }
 
+    func menu(_ menu: NSMenu, willHighlight item: NSMenuItem?) {
+        if item?.view !== blackoutMenuView {
+            BlackoutTooltipManager.shared.cancel()
+        }
+    }
+
     func menuDidClose(_ menu: NSMenu) {
+        BlackoutTooltipManager.shared.cancel()
         resetMenuInteractionState()
     }
 
