@@ -941,7 +941,7 @@ struct L10n {
     
     // MARK: - Menu Items
     static var setDuration: String { localized("Set Duration", zh: "设置时长") }
-    static var blackoutMode: String { localized("Blackout Mode (Energy Saving)", zh: "息屏模式（省电）") }
+    static var blackoutMode: String { localized("Blackout Mode (Energy Saving)", zh: "假装下钟 (偷偷努力)") }
     static var keyboardRestorePermissionRequired: String {
         localized("Keyboard restore: Permission required…", zh: "键盘恢复：需要授权…")
     }
@@ -1442,8 +1442,20 @@ final class BlackoutTooltipManager {
     }
 
     private func show(relativeTo view: NSView, screenRect: NSRect, mouseLoc: NSPoint) {
-        let panelWidth: CGFloat = 200
-        let panelHeight: CGFloat = 46
+        let text1 = "黑屏省电，后台任务与 Agent 不中断。"
+        let text2 = "晃动鼠标或连按 3 次按键即可点亮。"
+        let font1 = NSFont.systemFont(ofSize: 11, weight: .regular)
+        let font2 = NSFont.systemFont(ofSize: 10, weight: .regular)
+
+        let size1 = (text1 as NSString).size(withAttributes: [.font: font1])
+        let size2 = (text2 as NSString).size(withAttributes: [.font: font2])
+
+        let horizontalPadding: CGFloat = 8
+        let verticalPadding: CGFloat = 5
+        let spacing: CGFloat = 2
+
+        let panelWidth: CGFloat = ceil(max(size1.width, size2.width)) + (horizontalPadding * 2) + 1
+        let panelHeight: CGFloat = ceil(size1.height + size2.height) + spacing + (verticalPadding * 2)
 
         let screen = NSScreen.screens.first(where: { $0.frame.contains(mouseLoc) }) ?? NSScreen.main
         let visibleFrame = screen?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1920, height: 1080)
@@ -1490,25 +1502,23 @@ final class BlackoutTooltipManager {
         visualEffect.layer?.borderColor = NSColor.separatorColor.withAlphaComponent(0.3).cgColor
 
         // Labels matching native tooltip typography
-        let label1 = NSTextField(labelWithString: "黑屏省电，后台任务与 Agent 不中断。")
-        label1.font = NSFont.systemFont(ofSize: 11, weight: .regular)
+        let label1 = NSTextField(labelWithString: text1)
+        label1.font = font1
         label1.textColor = .labelColor
-        label1.maximumNumberOfLines = 0
-        label1.preferredMaxLayoutWidth = panelWidth - 16
-        label1.lineBreakMode = .byWordWrapping
+        label1.maximumNumberOfLines = 1
+        label1.lineBreakMode = .byClipping
 
-        let label2 = NSTextField(labelWithString: "晃动鼠标或连按 3 次按键即可点亮。")
-        label2.font = NSFont.systemFont(ofSize: 10, weight: .regular)
+        let label2 = NSTextField(labelWithString: text2)
+        label2.font = font2
         label2.textColor = .secondaryLabelColor
-        label2.maximumNumberOfLines = 0
-        label2.preferredMaxLayoutWidth = panelWidth - 16
-        label2.lineBreakMode = .byWordWrapping
+        label2.maximumNumberOfLines = 1
+        label2.lineBreakMode = .byClipping
 
         let stack = NSStackView(views: [label1, label2])
         stack.orientation = .vertical
         stack.alignment = .leading
-        stack.spacing = 2
-        stack.edgeInsets = NSEdgeInsets(top: 5, left: 8, bottom: 5, right: 8)
+        stack.spacing = spacing
+        stack.edgeInsets = NSEdgeInsets(top: verticalPadding, left: horizontalPadding, bottom: verticalPadding, right: horizontalPadding)
         stack.translatesAutoresizingMaskIntoConstraints = false
 
         visualEffect.addSubview(stack)
