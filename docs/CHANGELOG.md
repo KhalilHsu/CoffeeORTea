@@ -1,5 +1,19 @@
 # Changelog / 变更记录
 
+## [1.3.0] - 2026-08-24
+
+### Menu experience and reliability
+
+- Refined the native menu controls, language switcher, duration-slider interaction, and hover tooltip behavior.
+- Improved notification reliability and the notification application-icon resources.
+- Fixed Blackout keyboard recovery and menu-state handling; refreshed the Blackout title and made its tooltip size adapt to its content.
+
+### 菜单体验与可靠性
+
+- 优化原生菜单控件、语言切换、时长滑杆交互和悬停提示的表现。
+- 提升通知的可靠性，并修正通知应用图标资源。
+- 修复 Blackout 的键盘恢复与菜单状态处理；更新 Blackout 标题，并让提示框尺寸随内容自动适配。
+
 ## [1.2.0] - 2026-08-07
 
 ### Public source release preparation

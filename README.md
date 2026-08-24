@@ -94,7 +94,7 @@ When `CODESIGN_IDENTITY` is set, the script enables the hardened runtime and a t
 
 ## Version
 
-Current version: `1.2.0`.
+Current version: `1.3`.
 
 ## License
 
@@ -201,7 +201,7 @@ CODESIGN_IDENTITY="Developer ID Application: Your Name" ./build.sh
 
 ## 版本
 
-当前版本：`1.2.0`。
+当前版本：`1.3`。
 
 ## 许可证
 
