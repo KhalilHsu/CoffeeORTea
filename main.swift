@@ -921,8 +921,10 @@ struct L10n {
     }
     
     // MARK: - Toggle View
-    static var sleepLabel: String { localized("💤 Sleep", zh: "💤 睡眠") }
-    static var coffeeLabel: String { localized("☕️ Coffee", zh: "☕️ 咖啡") }
+    static var sleepTitle: String { localized("Sleep", zh: "倒头就") }
+    static var sleepIcon: String { "💤" }
+    static var coffeeTitle: String { localized("Coffee", zh: "倒杯") }
+    static var coffeeIcon: String { "☕️" }
     static var allowedToSleep: String { localized("Normal system sleep", zh: "按系统设置休眠") }
     static var systemNeverSleeps: String {
         localized("System sleep is already set to Never", zh: "系统已设置为永不休眠，无需开启")
@@ -1103,13 +1105,42 @@ struct ToggleMenuView: View {
     var body: some View {
         _ = state.updateCounter
         return VStack(spacing: 4) {
-            HStack {
-                Text(L10n.sleepLabel)
-                    .font(.system(size: 13, weight: .medium))
+            ZStack {
+                HStack {
+                    HStack(spacing: 3) {
+                        if L10n.current == .en {
+                            Text(L10n.sleepIcon)
+                                .font(.system(size: 13))
+                            Text(L10n.sleepTitle)
+                                .font(.system(size: 13, weight: .medium))
+                        } else {
+                            Text(L10n.sleepTitle)
+                                .font(.system(size: 13, weight: .medium))
+                            Text(L10n.sleepIcon)
+                                .font(.system(size: 13))
+                        }
+                    }
                     .foregroundColor(state.isOn ? .secondary : .primary)
-                    .padding(.leading, 12)
-                
-                Spacer()
+                    .padding(.leading, 16)
+                    
+                    Spacer()
+                    
+                    HStack(spacing: 3) {
+                        if L10n.current == .en {
+                            Text(L10n.coffeeIcon)
+                                .font(.system(size: 15))
+                            Text(L10n.coffeeTitle)
+                                .font(.system(size: 13, weight: .medium))
+                        } else {
+                            Text(L10n.coffeeTitle)
+                                .font(.system(size: 13, weight: .medium))
+                            Text(L10n.coffeeIcon)
+                                .font(.system(size: 15))
+                        }
+                    }
+                    .foregroundColor(state.isOn ? .primary : .secondary)
+                    .padding(.trailing, 16)
+                }
                 
                 CustomToggle(isOn: Binding(
                     get: { state.isOn },
@@ -1118,13 +1149,6 @@ struct ToggleMenuView: View {
                         state.onToggle?(newValue)
                     }
                 ))
-                
-                Spacer()
-                
-                Text(L10n.coffeeLabel)
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(state.isOn ? .primary : .secondary)
-                    .padding(.trailing, 12)
             }
             
             if !state.statusText.isEmpty {
