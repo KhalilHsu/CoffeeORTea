@@ -11,7 +11,7 @@ X86_64_BINARY="build_cache/${APP_NAME}-x86_64"
 
 echo "=== Building ${APP_NAME} macOS native app ==="
 
-for required_command in swiftc lipo codesign plutil; do
+for required_command in swiftc lipo codesign plutil ditto; do
     if ! command -v "$required_command" >/dev/null 2>&1; then
         echo "Error: ${required_command} is required to build ${APP_NAME}.app."
         exit 1
@@ -64,11 +64,11 @@ if [ -f "main.swift" ]; then
     swiftc -O \
         -target "arm64-apple-macosx${DEPLOYMENT_TARGET}" \
         -module-cache-path "${MODULE_CACHE_DIR}/arm64" \
-        main.swift -framework IOKit -o "${ARM64_BINARY}"
+        KeyboardPermissionFlow.swift main.swift -framework IOKit -o "${ARM64_BINARY}"
     swiftc -O \
         -target "x86_64-apple-macosx${DEPLOYMENT_TARGET}" \
         -module-cache-path "${MODULE_CACHE_DIR}/x86_64" \
-        main.swift -framework IOKit -o "${X86_64_BINARY}"
+        KeyboardPermissionFlow.swift main.swift -framework IOKit -o "${X86_64_BINARY}"
 
     lipo -create "${ARM64_BINARY}" "${X86_64_BINARY}" \
         -output "${APP_DIR}/Contents/MacOS/${APP_NAME}"
@@ -78,36 +78,35 @@ else
     exit 1
 fi
 
-# 5. Apply an ad-hoc signature for local execution. Set CODESIGN_IDENTITY to
-# use a Developer ID or Mac Development certificate for distribution builds.
-if command -v xattr >/dev/null 2>&1; then
-    # Finder provenance/resource-fork metadata can make codesign reject a
-    # locally copied bundle, especially when assets came from Downloads/AirDrop.
-    xattr -cr "${APP_DIR}"
-fi
+# 5. Sign an isolated copy. Desktop, iCloud, and File Provider locations can
+# reattach Finder metadata while codesign is reading the bundle.
+SIGNING_ROOT=$(mktemp -d "/private/tmp/${APP_NAME}-sign.XXXXXX")
+SIGNING_APP="${SIGNING_ROOT}/${APP_DIR}"
+trap 'rm -rf "${SIGNING_ROOT}"' EXIT
+ditto --norsrc "${APP_DIR}" "${SIGNING_APP}"
+xattr -cr "${SIGNING_APP}"
 
 if [ -n "${CODESIGN_IDENTITY:-}" ]; then
     # Distribution builds use the hardened runtime and a trusted timestamp.
     codesign --force --deep --options runtime --timestamp \
-        --sign "${CODESIGN_IDENTITY}" "${APP_DIR}"
+        --sign "${CODESIGN_IDENTITY}" "${SIGNING_APP}"
 else
     # Give local ad-hoc builds a stable designated requirement. Without this,
     # each rebuild is identified only by a new CDHash and macOS TCC permissions
     # appear enabled for the old binary while being unavailable to the new one.
     AD_HOC_REQUIREMENT='=designated => identifier "com.khalil.keepawake"'
     codesign --force --deep --sign - \
-        --requirements "${AD_HOC_REQUIREMENT}" "${APP_DIR}"
+        --requirements "${AD_HOC_REQUIREMENT}" "${SIGNING_APP}"
 fi
 
-# codesign may recreate Finder metadata on the outer .app directory. Remove it
-# after signing as well so a strict verification works on a local checkout.
-if command -v xattr >/dev/null 2>&1; then
-    xattr -cr "${APP_DIR}"
-    # Finder/File Provider can reattach these outer-bundle attributes while
-    # codesign is finishing. Remove the known verification blockers explicitly.
-    xattr -d com.apple.FinderInfo "${APP_DIR}" 2>/dev/null || true
-    xattr -d 'com.apple.fileprovider.fpfs#P' "${APP_DIR}" 2>/dev/null || true
-fi
+# Copy the signed bundle back without resource forks, then verify the exact
+# artifact that install.sh will place in /Applications.
+codesign --verify --deep --strict "${SIGNING_APP}"
+rm -rf "${APP_DIR}"
+ditto --norsrc "${SIGNING_APP}" "${APP_DIR}"
+xattr -cr "${APP_DIR}"
+rm -rf "${SIGNING_ROOT}"
+trap - EXIT
 
 codesign --verify --deep --strict "${APP_DIR}"
 

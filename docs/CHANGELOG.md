@@ -1,5 +1,15 @@
 # Changelog / 变更记录
 
+## Unreleased
+
+- Reworked Input Monitoring into explicit authorization, restart, repair, unavailable, and available states.
+- Verify that the keyboard event tap is actually usable instead of trusting the permission preflight alone.
+- Added a one-click repair for incompatible Input Monitoring records left by older local source builds.
+
+- 将输入监控流程拆分为授权、重启、修复、不可用和可用等明确状态。
+- 除系统权限预检外，进一步验证键盘事件监听能否实际创建。
+- 为旧本地源码构建留下的不兼容输入监控记录增加一次点击修复。
+
 ## [1.3.0] - 2026-08-24
 
 ### Menu experience and reliability

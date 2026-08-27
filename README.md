@@ -38,7 +38,7 @@ Blackout Mode normally reduces built-in and external display brightness to 0 ins
 - The app has no network requests, analytics SDK, remote-control path, or third-party runtime dependency.
 - It starts and manages only its own `/usr/bin/caffeinate` process and does not terminate assertions owned by other programs.
 - The temporary Blackout recovery file contains only the state needed to restore the current displays (display IDs, brightness, Gamma, and external-display IORegistry paths). The watchdog deletes it after recovery, and the file is restricted to the current user.
-- The global keyboard monitor only counts whether three keys were pressed within a short window; it does not read, store, or upload key values. KeepAwake explains this access the first time Blackout Mode needs it and links to System Settings → Privacy & Security → Input Monitoring. After authorization, the menu offers a one-click app restart so macOS can apply the permission. Users can decline and continue with mouse-only restoration.
+- The global keyboard monitor only counts whether three keys were pressed within a short window; it does not read, store, or upload key values. KeepAwake explains this access the first time Blackout Mode needs it and links to System Settings → Privacy & Security → Input Monitoring. It verifies both the macOS permission and whether the required event tap can actually be created. If an older source build left an incompatible authorization record, KeepAwake offers a one-click repair that resets only its own Input Monitoring decision before asking macOS to authorize the current build. Users can decline and continue with mouse-only restoration.
 - Notifications are optional and do not affect KeepAwake itself. On the first launch, allow KeepAwake in the macOS notification permission prompt. Use the checkmarked `Notifications` menu item to turn app notifications on or off without opening System Settings. Notifications are sent when KeepAwake is activated or deactivated, when Blackout Mode is activated/deactivated/auto-restored, or when Blackout Mode cannot safely dim a display. Installing or launching the app alone does not create a notification. If macOS notification permission has been denied, it must be restored manually in System Settings before the in-app toggle can be enabled again.
 
 ## Requirements
@@ -62,7 +62,7 @@ cd CoffeeORTea
 ./install.sh
 ```
 
-`install.sh` will call `build.sh` to compile an arm64 + x86_64 universal binary, create the app bundle, apply a local ad-hoc signature with a stable designated requirement, and install it to the `/Applications` folder for local use. The stable requirement prevents each rebuild from being treated as a different app by macOS privacy controls. macOS may show a developer-verification prompt on first launch; verify the source before allowing it to run.
+`install.sh` will call `build.sh` to compile an arm64 + x86_64 universal binary, create the app bundle, apply a local ad-hoc signature with a stable designated requirement, and install it to the `/Applications` folder for local use. This free source-install path does not require an Apple Developer Program membership. The stable requirement keeps rebuilds from being treated as unrelated apps after the current authorization is established, but it does not provide Developer ID identity verification, notarization, or protection against another locally built app deliberately reusing the same bundle identifier. Review the repository and remote URL before building, just as with any Terminal-installed source project.
 
 For a distribution build signed with a local certificate:
 
@@ -145,7 +145,7 @@ Blackout Mode 的默认策略是把内置屏幕和外接屏亮度降到 0，而�
 - 应用没有网络请求、分析 SDK、远程控制或第三方运行时依赖。
 - 应用只启动和管理自己创建的 `/usr/bin/caffeinate` 进程，不会终止其他程序的保持唤醒断言。
 - Blackout 的临时恢复文件只记录当前显示器恢复所需的状态（显示器 ID、亮度、Gamma，以及外接显示器的 IORegistry 路径），恢复后由 watchdog 删除；文件会设置为仅当前用户可读写。
-- 全局键盘监听只用于统计“是否在短时间内按了 3 次键”，不会读取、保存或上传按键内容。KeepAwake 会在息屏模式首次需要该权限时说明用途，并引导前往“系统设置 → 隐私与安全性 → 输入监控”；授权后菜单会提供一键重启，让 macOS 应用权限。用户也可以拒绝授权并继续仅使用鼠标恢复。
+- 全局键盘监听只用于统计“是否在短时间内按了 3 次键”，不会读取、保存或上传按键内容。KeepAwake 会在息屏模式首次需要该权限时说明用途，并引导前往“系统设置 → 隐私与安全性 → 输入监控”；应用会同时检查系统授权和实际事件监听是否可用。若旧的源码构建留下了不兼容的授权记录，KeepAwake 会提供一次点击修复，只重置自身的“输入监控”决定，再让 macOS 为当前构建重新授权。用户也可以拒绝授权并继续仅使用鼠标恢复。
 - 通知授权是可选的，不影响保持唤醒本身。首次启动时，请在 macOS 通知权限弹窗中允许 KeepAwake。菜单中的“通知”使用勾选状态表示应用内通知开关，点击只切换开关，不会打开系统设置。通知只会在开启或关闭保持唤醒、开启/关闭/自动恢复息屏模式，或息屏模式无法安全调暗显示器时发送；仅安装或启动应用不会自动产生通知。如果 macOS 通知权限已被拒绝，仍需先在系统设置中手动恢复权限，应用内开关才能再次开启。
 
 ## 要求
@@ -169,7 +169,7 @@ cd CoffeeORTea
 ./install.sh
 ```
 
-`install.sh` 会自动调用 `build.sh` 编译 arm64 + x86_64 universal binary，生成 App bundle，并使用带稳定 designated requirement 的本地 ad-hoc 签名将其安装到 `/Applications`（应用程序）文件夹。稳定标识可避免 macOS 隐私控制把每次重新构建都识别成不同应用。首次打开时，macOS 可能显示开发者验证提示；请确认源码来源后再允许运行。
+`install.sh` 会自动调用 `build.sh` 编译 arm64 + x86_64 universal binary，生成 App bundle，并使用带稳定 designated requirement 的本地 ad-hoc 签名将其安装到 `/Applications`（应用程序）文件夹。这条免费的源码安装路径不要求加入 Apple Developer Program。稳定标识能让当前授权建立后的后续构建保持同一身份，但它不提供 Developer ID 身份认证、notarization，也不能防止其他本地构建故意复用相同 bundle identifier。与其他通过 Terminal 安装的源码项目一样，构建前请确认仓库内容和远端地址。
 
 如需用本机证书构建分发版本：
 

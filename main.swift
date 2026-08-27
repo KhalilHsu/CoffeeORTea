@@ -615,6 +615,32 @@ class InputMonitor {
     private let keyTimeWindow: TimeInterval = 2.0
     private let checkInterval: TimeInterval = 0.1
 
+    static func keyboardMonitoringAvailability() -> KeyboardMonitoringAvailability {
+        guard CGPreflightListenEventAccess() else {
+            return .permissionDenied
+        }
+
+        let keyDownMask = CGEventMask(1) << CGEventType.keyDown.rawValue
+        guard let tap = CGEvent.tapCreate(
+            tap: .cgSessionEventTap,
+            place: .headInsertEventTap,
+            options: .listenOnly,
+            eventsOfInterest: keyDownMask,
+            callback: keyboardAvailabilityCallback,
+            userInfo: nil
+        ) else {
+            return .eventTapUnavailable
+        }
+
+        CFMachPortInvalidate(tap)
+        return .available
+    }
+
+    private static let keyboardAvailabilityCallback: CGEventTapCallBack = {
+        _, _, event, _ in
+        Unmanaged.passUnretained(event)
+    }
+
     func startMonitoring(callback: @escaping () -> Void) {
         stopMonitoring()
 
@@ -948,6 +974,12 @@ struct L10n {
     static var keyboardRestoreRestartRequired: String {
         localized("Keyboard restore: Restart to apply…", zh: "键盘恢复：点击重启以应用授权…")
     }
+    static var keyboardRestoreRepairRequired: String {
+        localized("Keyboard restore: Repair authorization…", zh: "键盘恢复：修复授权…")
+    }
+    static var keyboardRestoreUnavailable: String {
+        localized("Keyboard restore: Unavailable…", zh: "键盘恢复：暂不可用…")
+    }
     static var launchAtLogin: String { localized("Launch at Login", zh: "开机启动") }
     static var notifications: String { localized("Notifications", zh: "通知") }
     static var language: String { localized("Language", zh: "语言") }
@@ -981,6 +1013,35 @@ struct L10n {
         )
     }
     static var openSystemSettings: String { localized("Open System Settings", zh: "打开系统设置") }
+    static var repairAuthorization: String { localized("Repair Authorization", zh: "修复授权") }
+    static var keyboardRestoreRepairTitle: String {
+        localized("Repair Keyboard Authorization?", zh: "修复键盘恢复授权？")
+    }
+    static var keyboardRestoreRepairBody: String {
+        localized(
+            "KeepAwake detected an authorization left by an older local build. It can reset only its own Input Monitoring decision, then ask macOS to authorize the current build again.",
+            zh: "KeepAwake 检测到旧版本留下的授权与当前本机构建不匹配。应用可以只重置自身的“输入监控”记录，然后让 macOS 为当前版本重新授权。"
+        )
+    }
+    static var keyboardRestoreRepairFailedTitle: String {
+        localized("Authorization Repair Failed", zh: "授权修复失败")
+    }
+    static var keyboardRestoreRepairFailedBody: String {
+        localized(
+            "KeepAwake could not reset its Input Monitoring decision. No other privacy settings were changed.",
+            zh: "KeepAwake 无法重置自身的“输入监控”记录，其他隐私设置没有被更改。"
+        )
+    }
+    static var keyboardRestoreUnavailableTitle: String {
+        localized("Keyboard Restore Is Unavailable", zh: "键盘恢复暂不可用")
+    }
+    static var keyboardRestoreUnavailableBody: String {
+        localized(
+            "macOS reports that Input Monitoring is allowed, but KeepAwake cannot create the event monitor needed for keyboard restoration. Restart KeepAwake and try again.",
+            zh: "macOS 显示已允许“输入监控”，但 KeepAwake 无法创建键盘恢复所需的事件监听。请重启 KeepAwake 后再试。"
+        )
+    }
+    static var restartKeepAwake: String { localized("Restart KeepAwake", zh: "重启 KeepAwake") }
     static var useMouseOnly: String { localized("Use Mouse Only", zh: "仅使用鼠标恢复") }
     static var cancel: String { localized("Cancel", zh: "取消") }
     static var activatedTitle: String { localized("Keep Awake Activated", zh: "保持唤醒已激活") }
@@ -1676,7 +1737,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifi
     private let launchAtLoginConfiguredKey = "launchAtLoginConfigured"
     private let blackoutPermissionExplainedKey = "blackoutPermissionExplained"
     private let blackoutMouseOnlyAcceptedKey = "blackoutMouseOnlyAccepted"
+    private let keyboardPermissionRequestPendingKey = "keyboardPermissionRequestPending"
     private let keyboardPermissionRestartPendingKey = "keyboardPermissionRestartPending"
+    private var keyboardSettingsWasOpened = false
+    private var keyboardSettingsRoundTripCompleted = false
+    private var launchedWithKeyboardRestartPending = false
     private var notificationAuthorizationStatus: UNAuthorizationStatus = .notDetermined
     private var notificationAuthorizationResolved = false
     private var pendingNotifications: [(title: String, body: String)] = []
@@ -1733,10 +1798,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifi
     func applicationDidFinishLaunching(_ aNotification: Notification) {
         guard ensureSingleInstance() else { return }
 
-        // Input Monitoring changes apply to a newly launched process. A fresh
-        // launch has consumed any pending "restart to apply" state, whether
-        // the user granted the permission or chose not to.
-        UserDefaults.standard.removeObject(forKey: keyboardPermissionRestartPendingKey)
+        let defaults = UserDefaults.standard
+        launchedWithKeyboardRestartPending = defaults.bool(
+            forKey: keyboardPermissionRestartPendingKey
+        )
+        keyboardSettingsRoundTripCompleted = defaults.bool(
+            forKey: keyboardPermissionRequestPendingKey
+        )
 
         configureDefaultLaunchAtLogin()
 
@@ -1752,6 +1820,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifi
 
         constructMenu()
         refreshWakeStatus()
+    }
+
+    func applicationDidBecomeActive(_ notification: Notification) {
+        guard keyboardSettingsWasOpened else { return }
+        keyboardSettingsWasOpened = false
+        keyboardSettingsRoundTripCompleted = true
+        updateKeyboardRestorePermissionMenuItem(in: statusItem?.menu)
     }
 
     private func configureDefaultLaunchAtLogin() {
@@ -2015,6 +2090,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifi
     }
 
     func menuWillOpen(_ menu: NSMenu) {
+        if keyboardSettingsWasOpened {
+            keyboardSettingsWasOpened = false
+            keyboardSettingsRoundTripCompleted = true
+        }
         resetMenuInteractionState()
         refreshWakeStatus()
         refreshNotificationAuthorizationStatus()
@@ -2178,62 +2257,109 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifi
         )
     }
 
-    private var hasKeyboardRestorePermission: Bool {
-        CGPreflightListenEventAccess()
+    private var keyboardPermissionPhase: KeyboardPermissionPhase {
+        let defaults = UserDefaults.standard
+        return KeyboardPermissionFlow.phase(
+            availability: InputMonitor.keyboardMonitoringAvailability(),
+            requestPending: defaults.bool(forKey: keyboardPermissionRequestPendingKey),
+            restartPending: defaults.bool(forKey: keyboardPermissionRestartPendingKey),
+            launchedWithRestartPending: launchedWithKeyboardRestartPending,
+            completedSettingsRoundTrip: keyboardSettingsRoundTripCompleted
+        )
     }
 
     private func confirmKeyboardRestorePermissionIfNeeded() -> Bool {
-        if hasKeyboardRestorePermission {
-            return true
-        }
-
         let defaults = UserDefaults.standard
-        if defaults.bool(forKey: blackoutMouseOnlyAcceptedKey) {
+        switch keyboardPermissionPhase {
+        case .available:
+            clearKeyboardPermissionTransitionState()
             return true
-        }
 
-        defaults.set(true, forKey: blackoutPermissionExplainedKey)
-        updateKeyboardRestorePermissionMenuItem(in: statusItem.menu)
+        case .repairRequired:
+            return presentKeyboardPermissionRepairPrompt()
 
-        let alert = NSAlert()
-        alert.icon = NSApplication.shared.applicationIconImage
-        alert.messageText = L10n.keyboardRestorePermissionTitle
-        alert.informativeText = L10n.keyboardRestorePermissionBody
-        alert.alertStyle = .informational
-        alert.addButton(withTitle: L10n.openSystemSettings)
-        alert.addButton(withTitle: L10n.useMouseOnly)
-        alert.addButton(withTitle: L10n.cancel)
-
-        switch alert.runModal() {
-        case .alertFirstButtonReturn:
-            openKeyboardInputSettings()
+        case .restartRequired:
+            restartApp()
             return false
-        case .alertSecondButtonReturn:
-            defaults.set(true, forKey: blackoutMouseOnlyAcceptedKey)
-            return true
-        default:
-            return false
+
+        case .monitoringUnavailable:
+            return presentKeyboardMonitoringUnavailablePrompt()
+
+        case .needsAuthorization:
+            if defaults.bool(forKey: blackoutMouseOnlyAcceptedKey) {
+                return true
+            }
+
+            defaults.set(true, forKey: blackoutPermissionExplainedKey)
+            updateKeyboardRestorePermissionMenuItem(in: statusItem.menu)
+
+            let alert = NSAlert()
+            alert.icon = NSApplication.shared.applicationIconImage
+            alert.messageText = L10n.keyboardRestorePermissionTitle
+            alert.informativeText = L10n.keyboardRestorePermissionBody
+            alert.alertStyle = .informational
+            alert.addButton(withTitle: L10n.openSystemSettings)
+            alert.addButton(withTitle: L10n.useMouseOnly)
+            alert.addButton(withTitle: L10n.cancel)
+
+            switch alert.runModal() {
+            case .alertFirstButtonReturn:
+                openKeyboardInputSettings()
+                return false
+            case .alertSecondButtonReturn:
+                defaults.set(true, forKey: blackoutMouseOnlyAcceptedKey)
+                return true
+            default:
+                return false
+            }
         }
     }
 
     private func updateKeyboardRestorePermissionMenuItem(in menu: NSMenu?) {
         guard let item = menu?.item(withTag: 105) else { return }
         let defaults = UserDefaults.standard
-        let shouldShow = !hasKeyboardRestorePermission
+        let phase = keyboardPermissionPhase
+
+        if phase == .available {
+            clearKeyboardPermissionTransitionState()
+        } else if phase == .restartRequired {
+            defaults.removeObject(forKey: keyboardPermissionRequestPendingKey)
+            defaults.set(true, forKey: keyboardPermissionRestartPendingKey)
+        }
+
+        let shouldShow = phase != .available
             && defaults.bool(forKey: blackoutPermissionExplainedKey)
-        keyboardRestorePermissionMenuView.rowTitle = defaults.bool(
-            forKey: keyboardPermissionRestartPendingKey
-        ) ? L10n.keyboardRestoreRestartRequired : L10n.keyboardRestorePermissionRequired
+        switch phase {
+        case .needsAuthorization:
+            keyboardRestorePermissionMenuView.rowTitle = L10n.keyboardRestorePermissionRequired
+        case .restartRequired:
+            keyboardRestorePermissionMenuView.rowTitle = L10n.keyboardRestoreRestartRequired
+        case .repairRequired:
+            keyboardRestorePermissionMenuView.rowTitle = L10n.keyboardRestoreRepairRequired
+        case .monitoringUnavailable:
+            keyboardRestorePermissionMenuView.rowTitle = L10n.keyboardRestoreUnavailable
+        case .available:
+            break
+        }
+
         item.isHidden = !shouldShow
         item.isEnabled = shouldShow
         keyboardRestorePermissionMenuView.isItemEnabled = shouldShow
     }
 
     private func handleKeyboardRestorePermissionAction() {
-        if UserDefaults.standard.bool(forKey: keyboardPermissionRestartPendingKey) {
-            restartApp()
-        } else {
+        switch keyboardPermissionPhase {
+        case .available:
+            clearKeyboardPermissionTransitionState()
+            updateKeyboardRestorePermissionMenuItem(in: statusItem.menu)
+        case .needsAuthorization:
             openKeyboardInputSettings()
+        case .restartRequired:
+            restartApp()
+        case .repairRequired:
+            _ = presentKeyboardPermissionRepairPrompt()
+        case .monitoringUnavailable:
+            _ = presentKeyboardMonitoringUnavailablePrompt()
         }
     }
 
@@ -2242,18 +2368,122 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifi
         defaults.set(true, forKey: blackoutPermissionExplainedKey)
 
         if CGRequestListenEventAccess() {
-            defaults.removeObject(forKey: keyboardPermissionRestartPendingKey)
+            defaults.removeObject(forKey: keyboardPermissionRequestPendingKey)
+            let availability = InputMonitor.keyboardMonitoringAvailability()
+            if availability == .available {
+                clearKeyboardPermissionTransitionState()
+            } else {
+                defaults.set(true, forKey: keyboardPermissionRestartPendingKey)
+            }
             updateKeyboardRestorePermissionMenuItem(in: statusItem.menu)
             return
         }
 
-        defaults.set(true, forKey: keyboardPermissionRestartPendingKey)
-        updateKeyboardRestorePermissionMenuItem(in: statusItem.menu)
+        defaults.set(true, forKey: keyboardPermissionRequestPendingKey)
+        defaults.removeObject(forKey: keyboardPermissionRestartPendingKey)
+        keyboardSettingsRoundTripCompleted = false
 
         guard let settingsURL = URL(
             string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent"
         ) else { return }
+        keyboardSettingsWasOpened = true
         NSWorkspace.shared.open(settingsURL)
+        updateKeyboardRestorePermissionMenuItem(in: statusItem.menu)
+    }
+
+    private func presentKeyboardPermissionRepairPrompt() -> Bool {
+        let alert = NSAlert()
+        alert.icon = NSApplication.shared.applicationIconImage
+        alert.messageText = L10n.keyboardRestoreRepairTitle
+        alert.informativeText = L10n.keyboardRestoreRepairBody
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: L10n.repairAuthorization)
+        alert.addButton(withTitle: L10n.useMouseOnly)
+        alert.addButton(withTitle: L10n.cancel)
+
+        switch alert.runModal() {
+        case .alertFirstButtonReturn:
+            repairKeyboardInputAuthorization()
+            return false
+        case .alertSecondButtonReturn:
+            UserDefaults.standard.set(true, forKey: blackoutMouseOnlyAcceptedKey)
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func repairKeyboardInputAuthorization() {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/tccutil")
+        process.arguments = [
+            "reset",
+            "ListenEvent",
+            Bundle.main.bundleIdentifier ?? "com.khalil.keepawake"
+        ]
+        process.standardOutput = Pipe()
+        process.standardError = Pipe()
+
+        do {
+            try process.run()
+            process.waitUntilExit()
+            guard process.terminationStatus == 0 else {
+                presentKeyboardPermissionRepairFailure()
+                return
+            }
+        } catch {
+            print("KeepAwake: failed to reset Input Monitoring authorization: \(error)")
+            presentKeyboardPermissionRepairFailure()
+            return
+        }
+
+        let defaults = UserDefaults.standard
+        defaults.removeObject(forKey: keyboardPermissionRequestPendingKey)
+        defaults.removeObject(forKey: keyboardPermissionRestartPendingKey)
+        defaults.removeObject(forKey: blackoutMouseOnlyAcceptedKey)
+        keyboardSettingsRoundTripCompleted = false
+        openKeyboardInputSettings()
+    }
+
+    private func presentKeyboardPermissionRepairFailure() {
+        let alert = NSAlert()
+        alert.icon = NSApplication.shared.applicationIconImage
+        alert.messageText = L10n.keyboardRestoreRepairFailedTitle
+        alert.informativeText = L10n.keyboardRestoreRepairFailedBody
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: L10n.cancel)
+        alert.runModal()
+    }
+
+    private func presentKeyboardMonitoringUnavailablePrompt() -> Bool {
+        let alert = NSAlert()
+        alert.icon = NSApplication.shared.applicationIconImage
+        alert.messageText = L10n.keyboardRestoreUnavailableTitle
+        alert.informativeText = L10n.keyboardRestoreUnavailableBody
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: L10n.restartKeepAwake)
+        alert.addButton(withTitle: L10n.useMouseOnly)
+        alert.addButton(withTitle: L10n.cancel)
+
+        switch alert.runModal() {
+        case .alertFirstButtonReturn:
+            UserDefaults.standard.set(true, forKey: keyboardPermissionRestartPendingKey)
+            restartApp()
+            return false
+        case .alertSecondButtonReturn:
+            UserDefaults.standard.set(true, forKey: blackoutMouseOnlyAcceptedKey)
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func clearKeyboardPermissionTransitionState() {
+        let defaults = UserDefaults.standard
+        defaults.removeObject(forKey: keyboardPermissionRequestPendingKey)
+        defaults.removeObject(forKey: keyboardPermissionRestartPendingKey)
+        launchedWithKeyboardRestartPending = false
+        keyboardSettingsRoundTripCompleted = false
     }
 
     private func restartApp() {
