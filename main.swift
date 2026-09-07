@@ -5,6 +5,142 @@ import UserNotifications
 import IOKit
 import Darwin
 import ServiceManagement
+import Carbon
+
+// MARK: - Configurable global shortcuts
+
+private struct GlobalShortcut: Codable, Equatable {
+    let keyCode: UInt32
+    let modifiers: UInt32
+    let label: String
+}
+
+/// Registers a specific hotkey; does not monitor arbitrary keyboard input.
+private final class GlobalHotKey {
+    private var reference: EventHotKeyRef?
+    private var handler: EventHandlerRef?
+    private let identifier: UInt32
+    var onRelease: (() -> Void)?
+    private(set) var shortcut: GlobalShortcut?
+
+    init(identifier: UInt32) {
+        self.identifier = identifier
+        var type = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyReleased))
+        InstallEventHandler(GetApplicationEventTarget(), { _, event, context in
+            guard let context, let event else { return OSStatus(eventNotHandledErr) }
+            var identifier = EventHotKeyID()
+            let result = GetEventParameter(event, EventParamName(kEventParamDirectObject),
+                EventParamType(typeEventHotKeyID), nil, numericCast(MemoryLayout<EventHotKeyID>.size), nil, &identifier)
+            let owner = Unmanaged<GlobalHotKey>.fromOpaque(context).takeUnretainedValue()
+            guard result == noErr, identifier.signature == 0x424C4B54, identifier.id == owner.identifier else {
+                return OSStatus(eventNotHandledErr)
+            }
+            owner.onRelease?()
+            return noErr
+        }, 1, &type, Unmanaged.passUnretained(self).toOpaque(), &handler)
+    }
+
+    func set(_ value: GlobalShortcut?) -> Bool {
+        if value == shortcut && (value == nil || reference != nil) { return true }
+        guard let value else {
+            if let reference { UnregisterEventHotKey(reference) }
+            reference = nil
+            shortcut = nil
+            return true
+        }
+        guard handler != nil else { return false }
+        // Keep the previous binding alive until its replacement registers successfully.
+        var replacement: EventHotKeyRef?
+        let result = RegisterEventHotKey(value.keyCode, value.modifiers,
+            EventHotKeyID(signature: 0x424C4B54, id: identifier), GetApplicationEventTarget(), OptionBits(kEventHotKeyExclusive), &replacement)
+        guard result == noErr else { return false }
+        if let reference { UnregisterEventHotKey(reference) }
+        reference = replacement
+        shortcut = value
+        return true
+    }
+
+    func suspend() {
+        if let reference { UnregisterEventHotKey(reference) }
+        reference = nil
+    }
+
+    deinit {
+        if let reference { UnregisterEventHotKey(reference) }
+        if let handler { RemoveEventHandler(handler) }
+    }
+}
+
+private final class ShortcutRecorder: NSButton {
+    var value: GlobalShortcut?
+    private(set) var recording = false
+    override var acceptsFirstResponder: Bool { true }
+
+    override func mouseDown(with event: NSEvent) {
+        recording = true
+        title = L10n.localized("Press a shortcut… (Esc to cancel)", zh: "请按下组合键…（Esc 取消）")
+        window?.makeFirstResponder(self)
+    }
+
+    override func keyDown(with event: NSEvent) {
+        guard recording else {
+            if event.keyCode == 49 {
+                recording = true
+                title = L10n.localized("Press a shortcut… (Esc to cancel)", zh: "请按下组合键…（Esc 取消）")
+            } else {
+                super.keyDown(with: event)
+            }
+            return
+        }
+        if event.keyCode == 53 {
+            recording = false
+            refreshTitle()
+            return
+        }
+        let flags = event.modifierFlags.intersection([.command, .option, .control, .shift])
+        // Require Command or Control and a printable key to avoid typing/media keys.
+        guard !event.isARepeat, flags.contains(.command) || flags.contains(.control),
+              let text = event.characters(byApplyingModifiers: [])?.uppercased(),
+              text.count == 1, let scalar = text.unicodeScalars.first,
+              !CharacterSet.controlCharacters.contains(scalar),
+              !(0xF700...0xF8FF).contains(scalar.value) else {
+            title = L10n.localized("Use Command or Control + a character key", zh: "请使用 Command 或 Control + 字符键")
+            NSSound.beep()
+            return
+        }
+        // Reserve common application commands, including this dialog's editing keys.
+        if flags == .command && ["Q", "W", "C", "V", "X", "A", "Z", "H", "M", ",", " "].contains(text) {
+            title = L10n.localized("Reserved shortcut — try another", zh: "此组合键已保留，请尝试其他组合")
+            NSSound.beep()
+            return
+        }
+        var modifiers: UInt32 = 0
+        var label = ""
+        if flags.contains(.control) { modifiers |= UInt32(controlKey); label += "⌃" }
+        if flags.contains(.option) { modifiers |= UInt32(optionKey); label += "⌥" }
+        if flags.contains(.shift) { modifiers |= UInt32(shiftKey); label += "⇧" }
+        if flags.contains(.command) { modifiers |= UInt32(cmdKey); label += "⌘" }
+        value = GlobalShortcut(keyCode: UInt32(event.keyCode), modifiers: modifiers, label: label + text)
+        recording = false
+        refreshTitle()
+    }
+
+    override func resignFirstResponder() -> Bool {
+        recording = false
+        refreshTitle()
+        return super.resignFirstResponder()
+    }
+
+    @objc func clearShortcut(_ sender: Any?) {
+        recording = false
+        value = nil
+        refreshTitle()
+    }
+
+    func refreshTitle() {
+        title = value?.label ?? L10n.localized("Record Shortcut", zh: "录制快捷键")
+    }
+}
 
 // MARK: - DisplayServices Private Framework (for built-in Apple displays)
 
@@ -608,6 +744,7 @@ class InputMonitor {
     private var keyEventTap: CFMachPort?
     private var keyEventRunLoopSource: CFRunLoopSource?
     private var onTrigger: (() -> Void)?
+    var shouldIgnoreKey: ((CGEvent) -> Bool)?
 
     private let distanceThreshold: CGFloat = 500.0
     private let distanceTimeWindow: TimeInterval = 3.0
@@ -717,7 +854,7 @@ class InputMonitor {
         let monitor = Unmanaged<InputMonitor>.fromOpaque(userInfo).takeUnretainedValue()
         switch eventType {
         case .keyDown:
-            monitor.handleKeyPress()
+            if monitor.shouldIgnoreKey?(event) != true { monitor.handleKeyPress() }
         case .tapDisabledByTimeout, .tapDisabledByUserInput:
             if let tap = monitor.keyEventTap {
                 CGEvent.tapEnable(tap: tap, enable: true)
@@ -1008,8 +1145,8 @@ struct L10n {
     }
     static var keyboardRestorePermissionBody: String {
         localized(
-            "When Blackout Mode is active, KeepAwake can restore your displays after three key presses. It only counts key presses and never reads, stores, or uploads which keys you press.",
-            zh: "息屏模式开启后，连续按键 3 次可以恢复屏幕。KeepAwake 只统计按键次数，不会读取、保存或上传具体按键内容。"
+            "When Blackout Mode is active, KeepAwake can restore your displays after three key presses. It counts key presses, excluding your configured shortcuts. Key codes are checked only in memory; typed input is never stored or uploaded.",
+            zh: "息屏模式开启后，连续按键 3 次可以恢复屏幕。KeepAwake 统计按键次数，并排除已设置的快捷键。键码仅在内存中检查，不保存或上传输入内容。"
         )
     }
     static var openSystemSettings: String { localized("Open System Settings", zh: "打开系统设置") }
@@ -1730,7 +1867,16 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifi
     var caffeinateProcess: Process?
     var timer: Timer?
     var endTime: Date?
-    var selectedDuration: DurationOption = .indefinitely
+    var selectedDuration: DurationOption = DurationOption(rawValue:
+        UserDefaults.standard.string(forKey: "lastDuration") ?? "") ?? .indefinitely {
+        didSet { UserDefaults.standard.set(selectedDuration.rawValue, forKey: "lastDuration") }
+    }
+    private let blackoutHotKey = GlobalHotKey(identifier: 1)
+    private let keepAwakeHotKey = GlobalHotKey(identifier: 2)
+    private let keepAwakeShortcutDefaultsKey = "keepAwakeGlobalShortcut"
+    private var shortcutDialogOpen = false
+    private var shortcutMenuItem: NSMenuItem?
+    private let shortcutDefaultsKey = "blackoutGlobalShortcut"
 
     private let notificationCenter = UNUserNotificationCenter.current()
     private let notificationsEnabledKey = "notificationsEnabled"
@@ -1819,6 +1965,39 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifi
         setStatusBarIcon(isAwake: false)
 
         constructMenu()
+        blackoutHotKey.onRelease = { [weak self] in
+            guard let self, !self.shortcutDialogOpen, NSApp.modalWindow == nil else { return }
+            DispatchQueue.main.async { [weak self] in self?.handleBlackoutShortcut() }
+        }
+        if let data = defaults.data(forKey: shortcutDefaultsKey),
+           let shortcut = try? JSONDecoder().decode(GlobalShortcut.self, from: data) {
+            if !blackoutHotKey.set(shortcut) {
+                DispatchQueue.main.async { [weak self] in self?.showShortcutSettings(nil) }
+            }
+        }
+        keepAwakeHotKey.onRelease = { [weak self] in
+            guard let self, !self.shortcutDialogOpen, NSApp.modalWindow == nil else { return }
+            DispatchQueue.main.async { [weak self] in self?.handleKeepAwakeShortcut() }
+        }
+        if let data = defaults.data(forKey: keepAwakeShortcutDefaultsKey),
+           let shortcut = try? JSONDecoder().decode(GlobalShortcut.self, from: data) {
+            if !keepAwakeHotKey.set(shortcut) {
+                DispatchQueue.main.async { [weak self] in self?.showShortcutSettings(nil) }
+            }
+        }
+        inputMonitor.shouldIgnoreKey = { [weak self] event in
+            guard let self else { return false }
+            let flags = NSEvent.ModifierFlags(rawValue: UInt(event.flags.rawValue))
+            var modifiers: UInt32 = 0
+            if flags.contains(.control) { modifiers |= UInt32(controlKey) }
+            if flags.contains(.option) { modifiers |= UInt32(optionKey) }
+            if flags.contains(.shift) { modifiers |= UInt32(shiftKey) }
+            if flags.contains(.command) { modifiers |= UInt32(cmdKey) }
+            return [self.blackoutHotKey.shortcut, self.keepAwakeHotKey.shortcut].compactMap { $0 }.contains {
+                $0.keyCode == UInt32(event.getIntegerValueField(.keyboardEventKeycode)) && $0.modifiers == modifiers
+            }
+        }
+        updateShortcutMenuTitle()
         refreshWakeStatus()
     }
 
@@ -2018,6 +2197,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifi
 
         menu.addItem(NSMenuItem.separator())
 
+        let shortcutItem = NSMenuItem(title: "", action: #selector(showShortcutSettings(_:)), keyEquivalent: "")
+        shortcutItem.target = self
+        shortcutMenuItem = shortcutItem
+        menu.addItem(shortcutItem)
+        updateShortcutMenuTitle()
+
         // ── About & Quit ──
         let launchAtLoginItem = NSMenuItem(title: L10n.launchAtLogin, action: nil, keyEquivalent: "")
         launchAtLoginItem.tag = 103
@@ -2201,6 +2386,170 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifi
     }
 
 
+
+    private func updateShortcutMenuTitle() {
+        shortcutMenuItem?.title = L10n.localized("Shortcut Settings…", zh: "快捷键设置…")
+    }
+
+    @objc private func showShortcutSettings(_ sender: Any?) {
+        guard !shortcutDialogOpen else { return }
+        shortcutDialogOpen = true
+        let previousAwake = keepAwakeHotKey.shortcut
+        let previousBlackout = blackoutHotKey.shortcut
+        // Pause both bindings while editing so recording never triggers an action.
+        blackoutHotKey.suspend()
+        keepAwakeHotKey.suspend()
+        defer {
+            _ = blackoutHotKey.set(blackoutHotKey.shortcut)
+            _ = keepAwakeHotKey.set(keepAwakeHotKey.shortcut)
+            shortcutDialogOpen = false
+        }
+        statusItem.menu?.cancelTracking()
+        NSApp.activate(ignoringOtherApps: true)
+        let alert = NSAlert()
+        alert.messageText = L10n.localized("Shortcut Settings", zh: "快捷键设置")
+        alert.informativeText = L10n.localized(
+            "Choose a shortcut for each action. Include Command or Control. Shortcuts work while KeepAwake is running and require no additional permissions.",
+            zh: "分别设置包含 Command 或 Control 的组合键。应用运行时全局生效，无需额外权限。")
+        alert.addButton(withTitle: L10n.localized("Save", zh: "保存"))
+        alert.addButton(withTitle: L10n.localized("Cancel", zh: "取消"))
+
+        let content = NSView(frame: NSRect(x: 0, y: 0, width: 500, height: 152))
+        func makeRow(title: String, description: String, y: CGFloat,
+                     shortcut: GlobalShortcut?, defaultsKey: String) -> ShortcutRecorder {
+            let label = NSTextField(labelWithString: title)
+            label.font = .systemFont(ofSize: 13, weight: .medium)
+            label.frame = NSRect(x: 0, y: y + 29, width: 180, height: 20)
+            content.addSubview(label)
+            let detail = NSTextField(wrappingLabelWithString: description)
+            detail.font = .systemFont(ofSize: 11)
+            detail.textColor = .secondaryLabelColor
+            detail.frame = NSRect(x: 0, y: y, width: 185, height: 30)
+            content.addSubview(detail)
+
+            let recorder = ShortcutRecorder(frame: NSRect(x: 195, y: y + 13, width: 245, height: 32))
+            recorder.bezelStyle = .rounded
+            recorder.value = shortcut
+            if recorder.value == nil, let data = UserDefaults.standard.data(forKey: defaultsKey) {
+                recorder.value = try? JSONDecoder().decode(GlobalShortcut.self, from: data)
+                alert.informativeText = L10n.localized(
+                    "A saved shortcut is unavailable. Choose another combination, or clear it before saving.",
+                    zh: "有已保存的快捷键当前不可用，请修改或清除后保存。")
+            }
+            recorder.refreshTitle()
+            recorder.setAccessibilityLabel(title)
+            content.addSubview(recorder)
+            let clear = NSButton(title: L10n.localized("Clear", zh: "清除"),
+                                 target: recorder, action: #selector(ShortcutRecorder.clearShortcut(_:)))
+            clear.bezelStyle = .rounded
+            clear.frame = NSRect(x: 444, y: y + 13, width: 56, height: 32)
+            clear.setAccessibilityLabel(L10n.localized("Clear ", zh: "清除") + title)
+            content.addSubview(clear)
+            return recorder
+        }
+        let awakeRecorder = makeRow(title: "Keep Awake",
+            description: L10n.localized("Start or stop keeping awake", zh: "开启或关闭保持唤醒"),
+            y: 88, shortcut: previousAwake, defaultsKey: keepAwakeShortcutDefaultsKey)
+        let divider = NSBox(frame: NSRect(x: 0, y: 76, width: 500, height: 1))
+        divider.boxType = .separator
+        content.addSubview(divider)
+        let blackoutRecorder = makeRow(title: "Blackout Mode",
+            description: L10n.localized("Dim or restore displays", zh: "息屏或恢复屏幕"),
+            y: 12, shortcut: previousBlackout, defaultsKey: shortcutDefaultsKey)
+        alert.accessoryView = content
+        let monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            guard event.window === alert.window else { return event }
+            for recorder in [awakeRecorder, blackoutRecorder] where recorder.recording {
+                guard alert.window.firstResponder === recorder else { continue }
+                recorder.keyDown(with: event)
+                return nil
+            }
+            return event
+        }
+        defer { if let monitor { NSEvent.removeMonitor(monitor) } }
+        while alert.runModal() == .alertFirstButtonReturn {
+            let awake = awakeRecorder.value
+            let blackout = blackoutRecorder.value
+            if let awake, let blackout,
+               awake.keyCode == blackout.keyCode && awake.modifiers == blackout.modifiers {
+                alert.informativeText = L10n.localized(
+                    "The two actions need different shortcuts. Change one and save again.",
+                    zh: "两个功能不能使用相同的快捷键，请修改其中一个后保存。")
+                continue
+            }
+            // Save both bindings together; roll back if either registration fails.
+            if !keepAwakeHotKey.set(awake) || !blackoutHotKey.set(blackout) {
+                keepAwakeHotKey.suspend()
+                blackoutHotKey.suspend()
+                _ = keepAwakeHotKey.set(previousAwake)
+                _ = blackoutHotKey.set(previousBlackout)
+                keepAwakeHotKey.suspend()
+                blackoutHotKey.suspend()
+                alert.informativeText = L10n.localized(
+                    "A shortcut could not be registered. It may be in use. Choose another combination; no changes have been saved.",
+                    zh: "有快捷键无法注册，可能已被占用。请更换组合键，当前修改尚未保存。")
+                continue
+            }
+            for (key, value) in [(keepAwakeShortcutDefaultsKey, awake), (shortcutDefaultsKey, blackout)] {
+                if let value, let data = try? JSONEncoder().encode(value) {
+                    UserDefaults.standard.set(data, forKey: key)
+                } else {
+                    UserDefaults.standard.removeObject(forKey: key)
+                }
+            }
+            return
+        }
+    }
+
+    private func handleBlackoutShortcut() {
+        guard !shortcutDialogOpen else { return }
+        shortcutDialogOpen = true
+        defer { shortcutDialogOpen = false }
+        statusItem.menu?.cancelTracking()
+        if isBlackoutModeActive {
+            disableBlackoutMode()
+            return
+        }
+        if !isKeepAwakeActive && !confirmShortcutDuration(blackout: true) { return }
+        // Existing permission explanation and recovery safeguards remain centralized here.
+        // If already awake, enableBlackoutMode leaves the current timer untouched.
+        enableBlackoutMode()
+    }
+
+    private func handleKeepAwakeShortcut() {
+        guard !shortcutDialogOpen else { return }
+        shortcutDialogOpen = true
+        defer { shortcutDialogOpen = false }
+        statusItem.menu?.cancelTracking()
+        if isKeepAwakeActive {
+            deactivate() // Also restores displays if Blackout Mode is active.
+        } else if confirmShortcutDuration(blackout: false) {
+            activate()
+        }
+    }
+
+    private func confirmShortcutDuration(blackout: Bool) -> Bool {
+        NSApp.activate(ignoringOtherApps: true)
+        let alert = NSAlert()
+        alert.messageText = blackout
+            ? L10n.localized("Start Blackout Mode", zh: "开启息屏模式")
+            : L10n.localized("Start Keep Awake", zh: "开启保持唤醒")
+        alert.informativeText = blackout
+            ? L10n.localized("Choose how long to keep your Mac awake. After confirmation, Keep Awake and Blackout Mode will start. Timed sessions restore displays when they end.", zh: "选择保持唤醒的时长。确认后将开启 Keep Awake 并息屏；选择限时时长时，到期将恢复屏幕。")
+            : L10n.localized("Choose how long to keep your Mac awake. Your last duration is selected.", zh: "选择保持唤醒的时长，默认选中上次使用的时长。")
+        alert.addButton(withTitle: blackout
+            ? L10n.localized("Keep Awake & Blackout", zh: "保持唤醒并息屏")
+            : L10n.localized("Start Keep Awake", zh: "开启保持唤醒"))
+        alert.addButton(withTitle: L10n.localized("Cancel", zh: "取消"))
+        let picker = NSPopUpButton(frame: NSRect(x: 0, y: 0, width: 300, height: 28), pullsDown: false)
+        picker.addItems(withTitles: DurationOption.allCases.map { $0.localizedName })
+        picker.selectItem(at: DurationOption.allCases.firstIndex(of: selectedDuration) ?? 0)
+        alert.accessoryView = picker
+        guard alert.runModal() == .alertFirstButtonReturn else { return false }
+        selectedDuration = DurationOption.allCases[picker.indexOfSelectedItem]
+        durationSliderView.selectedDuration = selectedDuration
+        return true
+    }
 
     @objc func toggleBlackoutMode(_ sender: NSMenuItem) {
         if isBlackoutModeActive {
@@ -2900,6 +3249,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifi
         durationSliderView.state.updateCounter += 1
 
         // 3. Update AppKit menu rows
+        updateShortcutMenuTitle()
         blackoutMenuView.rowTitle = L10n.blackoutMode
         updateKeyboardRestorePermissionMenuItem(in: statusItem.menu)
         launchAtLoginMenuView.rowTitle = L10n.launchAtLogin
