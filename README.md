@@ -209,12 +209,12 @@ CODESIGN_IDENTITY="Developer ID Application: Your Name" ./build.sh
 
 ## Configurable global shortcuts / 自定义全局快捷键
 
-- Use **Blackout Shortcut…** and **Keep Awake Shortcut…** in the menu to record, save, or clear two independent shortcuts. Both start unassigned. Click the recorder (or focus it and press Space), then press a combination containing Command or Control; Escape cancels recording. Common Command-only app commands are reserved. A registration failure or duplicate binding leaves the previous setting intact. Conflict checks cannot guarantee detection of every third-party shortcut.
+- Open **Shortcut Settings…** from the menu to configure Keep Awake and Blackout Mode together. Each row has a recorder and a Clear button; Save applies both shortcuts, while Cancel discards edits. Both start unassigned. Click the recorder (or focus it and press Space), then press a combination containing Command or Control; Escape cancels recording. Common Command-only app commands are reserved. A registration failure or duplicate binding leaves the previous setting intact. Conflict checks cannot guarantee detection of every third-party shortcut.
 - When Keep Awake is off, either shortcut opens a duration confirmation using the last selected duration (remembered across launches). Cancel leaves Keep Awake and Blackout off. Confirm starts Keep Awake, and also Blackout when invoked through its shortcut.
 - When Keep Awake is on, its shortcut turns it off and restores any dimmed displays. The Blackout shortcut only toggles dimming and preserves the running timer. Timed sessions restore displays when they expire.
 - Shortcut registration does not request Input Monitoring or Accessibility access. The optional three-key recovery feature retains its separate Input Monitoring permission flow. Shortcuts require KeepAwake to be running; recording temporarily suspends both bindings.
 
-- 菜单中的「息屏快捷键…」和「保持唤醒快捷键…」可分别录入、保存和清除组合键，默认均不绑定。点击录入框（或聚焦后按空格），输入包含 Command 或 Control 的组合键；Esc 取消录入。保留常用的纯 Command 应用命令。注册失败或两项重复绑定时保留原设置；无法保证检测所有第三方快捷键冲突。
+- 菜单仅保留「快捷键设置…」入口，打开后集中设置 Keep Awake 和 Blackout Mode。每行可录入或清除组合键，「保存」统一应用两项设置，「取消」放弃修改；默认均不绑定。点击录入框（或聚焦后按空格），输入包含 Command 或 Control 的组合键；Esc 取消录入。保留常用的纯 Command 应用命令。注册失败或两项重复绑定时保留原设置；无法保证检测所有第三方快捷键冲突。
 - Keep Awake 未开启时，两种快捷键都会显示时长确认窗口，默认选中上次的时长，重启后仍记得。取消不会开启唤醒或息屏；确认后开启 Keep Awake，使用息屏快捷键时还会开启 Blackout Mode。
 - Keep Awake 已开启时，唤醒快捷键将其关闭并恢复屏幕；息屏快捷键仅切换息屏，不重置当前倒计时。限时会话到期后自动恢复屏幕。
 - 快捷键注册无需输入监控或辅助功能权限。「连按三次恢复」保留独立的可选输入监控授权流程。快捷键仅在应用运行时有效；录入期间会暂停两个热键。恢复监听仅在内存中检查键码与修饰键以排除这两个快捷键，不保存或上传输入内容。
