@@ -38,7 +38,7 @@ Blackout Mode normally reduces built-in and external display brightness to 0 ins
 - The app has no network requests, analytics SDK, remote-control path, or third-party runtime dependency.
 - It starts and manages only its own `/usr/bin/caffeinate` process and does not terminate assertions owned by other programs.
 - The temporary Blackout recovery file contains only the state needed to restore the current displays (display IDs, brightness, Gamma, and external-display IORegistry paths). The watchdog deletes it after recovery, and the file is restricted to the current user.
-- The global keyboard monitor only counts whether three keys were pressed within a short window; it does not read, store, or upload key values. KeepAwake explains this access the first time Blackout Mode needs it and links to System Settings → Privacy & Security → Input Monitoring. It verifies both the macOS permission and whether the required event tap can actually be created. If an older source build left an incompatible authorization record, KeepAwake offers a one-click repair that resets only its own Input Monitoring decision before asking macOS to authorize the current build. Users can decline and continue with mouse-only restoration.
+- The keyboard recovery monitor counts whether three keys were pressed within a short window. It checks key codes and modifiers in memory only to exclude the configured shortcuts from this count; it does not store or upload typed input. KeepAwake explains this access the first time Blackout Mode needs it and links to System Settings → Privacy & Security → Input Monitoring. It verifies both the macOS permission and whether the required event tap can actually be created. If an older source build left an incompatible authorization record, KeepAwake offers a one-click repair that resets only its own Input Monitoring decision before asking macOS to authorize the current build. Users can decline and continue with mouse-only restoration.
 - Notifications are optional and do not affect KeepAwake itself. On the first launch, allow KeepAwake in the macOS notification permission prompt. Use the checkmarked `Notifications` menu item to turn app notifications on or off without opening System Settings. Notifications are sent when KeepAwake is activated or deactivated, when Blackout Mode is activated/deactivated/auto-restored, or when Blackout Mode cannot safely dim a display. Installing or launching the app alone does not create a notification. If macOS notification permission has been denied, it must be restored manually in System Settings before the in-app toggle can be enabled again.
 
 ## Requirements
@@ -145,7 +145,7 @@ Blackout Mode 的默认策略是把内置屏幕和外接屏亮度降到 0，而�
 - 应用没有网络请求、分析 SDK、远程控制或第三方运行时依赖。
 - 应用只启动和管理自己创建的 `/usr/bin/caffeinate` 进程，不会终止其他程序的保持唤醒断言。
 - Blackout 的临时恢复文件只记录当前显示器恢复所需的状态（显示器 ID、亮度、Gamma，以及外接显示器的 IORegistry 路径），恢复后由 watchdog 删除；文件会设置为仅当前用户可读写。
-- 全局键盘监听只用于统计“是否在短时间内按了 3 次键”，不会读取、保存或上传按键内容。KeepAwake 会在息屏模式首次需要该权限时说明用途，并引导前往“系统设置 → 隐私与安全性 → 输入监控”；应用会同时检查系统授权和实际事件监听是否可用。若旧的源码构建留下了不兼容的授权记录，KeepAwake 会提供一次点击修复，只重置自身的“输入监控”决定，再让 macOS 为当前构建重新授权。用户也可以拒绝授权并继续仅使用鼠标恢复。
+- 键盘恢复监听统计“是否在短时间内按了 3 次键”，仅在内存中检查键码与修饰键以排除已设置的快捷键，不保存或上传输入内容。KeepAwake 会在息屏模式首次需要该权限时说明用途，并引导前往“系统设置 → 隐私与安全性 → 输入监控”；应用会同时检查系统授权和实际事件监听是否可用。若旧的源码构建留下了不兼容的授权记录，KeepAwake 会提供一次点击修复，只重置自身的“输入监控”决定，再让 macOS 为当前构建重新授权。用户也可以拒绝授权并继续仅使用鼠标恢复。
 - 通知授权是可选的，不影响保持唤醒本身。首次启动时，请在 macOS 通知权限弹窗中允许 KeepAwake。菜单中的“通知”使用勾选状态表示应用内通知开关，点击只切换开关，不会打开系统设置。通知只会在开启或关闭保持唤醒、开启/关闭/自动恢复息屏模式，或息屏模式无法安全调暗显示器时发送；仅安装或启动应用不会自动产生通知。如果 macOS 通知权限已被拒绝，仍需先在系统设置中手动恢复权限，应用内开关才能再次开启。
 
 ## 要求
@@ -206,3 +206,15 @@ CODESIGN_IDENTITY="Developer ID Application: Your Name" ./build.sh
 ## 许可证
 
 本项目使用 [MIT License](LICENSE)。
+
+## Configurable global shortcuts / 自定义全局快捷键
+
+- Use **Blackout Shortcut…** and **Keep Awake Shortcut…** in the menu to record, save, or clear two independent shortcuts. Both start unassigned. Click the recorder (or focus it and press Space), then press a combination containing Command or Control; Escape cancels recording. Common Command-only app commands are reserved. A registration failure or duplicate binding leaves the previous setting intact. Conflict checks cannot guarantee detection of every third-party shortcut.
+- When Keep Awake is off, either shortcut opens a duration confirmation using the last selected duration (remembered across launches). Cancel leaves Keep Awake and Blackout off. Confirm starts Keep Awake, and also Blackout when invoked through its shortcut.
+- When Keep Awake is on, its shortcut turns it off and restores any dimmed displays. The Blackout shortcut only toggles dimming and preserves the running timer. Timed sessions restore displays when they expire.
+- Shortcut registration does not request Input Monitoring or Accessibility access. The optional three-key recovery feature retains its separate Input Monitoring permission flow. Shortcuts require KeepAwake to be running; recording temporarily suspends both bindings.
+
+- 菜单中的「息屏快捷键…」和「保持唤醒快捷键…」可分别录入、保存和清除组合键，默认均不绑定。点击录入框（或聚焦后按空格），输入包含 Command 或 Control 的组合键；Esc 取消录入。保留常用的纯 Command 应用命令。注册失败或两项重复绑定时保留原设置；无法保证检测所有第三方快捷键冲突。
+- Keep Awake 未开启时，两种快捷键都会显示时长确认窗口，默认选中上次的时长，重启后仍记得。取消不会开启唤醒或息屏；确认后开启 Keep Awake，使用息屏快捷键时还会开启 Blackout Mode。
+- Keep Awake 已开启时，唤醒快捷键将其关闭并恢复屏幕；息屏快捷键仅切换息屏，不重置当前倒计时。限时会话到期后自动恢复屏幕。
+- 快捷键注册无需输入监控或辅助功能权限。「连按三次恢复」保留独立的可选输入监控授权流程。快捷键仅在应用运行时有效；录入期间会暂停两个热键。恢复监听仅在内存中检查键码与修饰键以排除这两个快捷键，不保存或上传输入内容。
